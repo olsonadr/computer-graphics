@@ -1,9 +1,30 @@
+# Variables
+SRCDIR = .
+SRCFILE = proj.cpp
+OUTDIR = .
+OUTFILE = proj
+CCFLAGS = -Linclude -Iinclude -lm
 
-linux: proj.cpp
-	g++ -o proj proj.cpp -Linclude -Iinclude -lGL -lGLU -lglut /usr/lib64/libglut.so -lm
+# Add windows compiler options and run command
+ifeq ($(OS),Windows_NT)
+	SRCDIR := $(SRCDIR:/=\\)\\
+	OUTDIR := $(OUTDIR:/=\\)\\
+	OUTFILE = $(OUTFILE).exe
+	RUNCMD = $(OUTDIR)$(OUTFILE)
+    CCFLAGS += -lopengl32 -lGLU32 -lfreeglut -lglew32
+# Add linux compiler options and run command
+else
+	SRCDIR := $(SRCDIR)/
+	OUTDIR := $(OUTDIR)/
+	RUNCMD = $(OUTDIR)$(OUTFILE)
+	CCFLAGS += -lGL -lGLU -lglut /usr/lib64/libglut.so
+endif
 
-windows: proj.cpp
-	g++ -o proj proj.cpp -Linclude -Iinclude -lopengl32 -lGLU32 -lfreeglut -lglew32 -lm
+build: proj.cpp
+	g++ -o $(OUTDIR)$(OUTFILE) $(SRCDIR)$(SRCFILE) $(CCFLAGS)
+
+run: build
+	$(RUNCMD)
 
 clean:
-	rm proj proj.exe
+	rm $(OUTDIR)$(OUTFILE) -f
