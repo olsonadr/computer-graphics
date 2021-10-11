@@ -71,9 +71,15 @@ const int SPHERE_DEF_ARC = {12};
 // rotate speeds and overall sphere rotate time
 const int SPHERE_ROTATE_TIME = 1000;
 const int SPHERE_SLICE_CYCLE_TIME = 4000;
-const float SPHERE_ROTATE_Z_SPEED = 0.f;
+const float SPHERE_ROTATE_Z_SPEED = 0.03f;
 const float SPHERE_ROTATE_Y_SPEED = 0.12f;
 const float SPHERE_ROTATE_X_SPEED = 0.07f;
+
+// helicoptor and blade parameters
+#define BLADE_RADIUS	 1.0
+#define BLADE_WIDTH		 0.4
+const int BLADE_SPIN_TIME = 500;
+const float TAIL_SPEED_RATIO = 2.;
 
 // multiplication factors for input interaction:
 //  (these are known from previous experience)
@@ -162,10 +168,10 @@ const GLint ArcSlices[] = {
 
 // fog parameters:
 const GLenum FOGMODE = {GL_LINEAR};
-const GLfloat FOGCOLOR[4] = {.0, .0, .0, 1.};
-const GLfloat FOGDENSITY = {0.30f};
-const GLfloat FOGSTART = {1.5};
-const GLfloat FOGEND = {4.};
+const GLfloat FOGCOLOR[4] = {.0, .0, .0, 0.5};
+const GLfloat FOGDENSITY = {0.10f};
+const GLfloat FOGSTART = {5};
+const GLfloat FOGEND = {25.};
 
 // view mode constants
 const int OUTSIDE_VIEW = 0;
@@ -174,7 +180,10 @@ const int INSIDE_VIEW = 1;
 // non-constant global variables:
 int ActiveButton;    // current button that is down
 GLuint AxesList;     // list to hold the axes
-int AxesOn;          // != 0 means to draw the axes
+int OriginAxesOn;    // != 0 means to draw the origin axes
+int FrontAxesOn;     // != 0 means to draw the front scene fixed axes
+int SphereAxesOn;    // != 0 means to draw the front scene rotated axes
+int OriginAxesScale; // size of the origin axes
 int DebugOn;         // != 0 means to print debugging info
 int DepthCueOn;      // != 0 means to use intensity depth cueing
 int DepthBufferOn;   // != 0 means to use the z-buffer
@@ -182,16 +191,21 @@ int DepthFightingOn; // != 0 means to force the creation of z-fighting
 GLuint BoxList;      // box display list
 GLuint SphereList;   // sphere display list
 GLuint HeliList;     // helicopter display list
+GLuint BladeList;    // helicopter blade display list
 int MainWindow;      // window id for main graphics window
 float Scale;         // scaling factor
 int ShadowsOn;       // != 0 means to turn shadows on
 int WhichColor;      // index into Colors[ ]
 int WhichProjection; // ORTHO or PERSP
 int Xmouse, Ymouse;  // mouse values
+bool DrawHelpText;   // whether to draw the help text
+bool DrawSlicesText;   // whether to draw the slices text
 float Xrot, Yrot, Zrot; // whole scene rotation angles in degrees
 float FrontXrot, FrontYrot, FrontZrot; // subscene in front of heli rotation angles in degrees
+float TopBladeRot, TailBladeRot; // heli blade rotation angles in degrees
 int msOfPriorAnimate; // ms value of the prior animate call
 bool SphereRotateOn;
+bool BladesRotateOn;
 bool SphereSliceAnimateOn;
 int SphereArcSliceAnimateDir; // either -1 or 1 to show which way arcs are animating
 int SphereVertSliceAnimateDir; // either -1 or 1 to show which way verts are animating
@@ -206,6 +220,7 @@ int CurrView;        // current viewmode (0=outside, 1=inside)
 // function prototypes:
 void Animate();
 void Display();
+void DrawHelicopterBlades();
 void DoAxesMenu(int);
 void DoColorMenu(int);
 void DoDepthBufferMenu(int);
@@ -221,6 +236,7 @@ float ElapsedSeconds();
 void InitGraphics();
 void InitLists();
 void CreateHeliList();
+void CreateBladeList();
 void UpdateSphereList();
 void InitMenus();
 void Keyboard(unsigned char, int, int);
@@ -296,7 +312,6 @@ void Animate()
 
     // Handle sphere slice animating if enabled
     if (SphereSliceAnimateOn) {
-                
         // Get how far into the arc and vert animations they should be
         float arc_step = (SPHERE_MAX_ARC - SPHERE_MIN_ARC) * ((float)elapsedMS) / SPHERE_SLICE_CYCLE_TIME;
         float vert_step = (SPHERE_MAX_VERT - SPHERE_MIN_VERT) * ((float)elapsedMS) / SPHERE_SLICE_CYCLE_TIME;
@@ -304,23 +319,19 @@ void Animate()
         SphereVertSlices += SphereVertSliceAnimateDir * arc_step;
 
         // Switch direction if at min or max arc
-        if (SphereArcSlices > SPHERE_MAX_ARC)
-        {
+        if (SphereArcSlices > SPHERE_MAX_ARC) {
             SphereArcSlices = SPHERE_MAX_ARC;
             SphereArcSliceAnimateDir = -1;
-        } else if (SphereArcSlices < SPHERE_MIN_ARC)
-        {
+        } else if (SphereArcSlices < SPHERE_MIN_ARC) {
             SphereArcSliceAnimateDir = 1;
             SphereArcSlices = SPHERE_MIN_ARC;
         }
 
         // Switch directions if at min or max vert
-        if (SphereVertSlices > SPHERE_MAX_VERT)
-        {
+        if (SphereVertSlices > SPHERE_MAX_VERT) {
             SphereVertSliceAnimateDir = -1;
             SphereVertSlices = SPHERE_MAX_VERT;
-        } else if (SphereVertSlices < SPHERE_MIN_VERT)
-        {
+        } else if (SphereVertSlices < SPHERE_MIN_VERT) {
             SphereVertSliceAnimateDir = 1;
             SphereVertSlices = SPHERE_MIN_VERT;
         }
@@ -329,7 +340,14 @@ void Animate()
         UpdateSphereList();        
     }
 
-    // Handle blade spinning!
+    // Inline double modulo
+    auto mod = [](double x, double y) { return x - (int)(x/y) * y; };
+    
+    // Handle blade spinning (if enabled)!
+    if (BladesRotateOn) {
+        TopBladeRot = mod((TopBladeRot + 180. * float(elapsedMS) / BLADE_SPIN_TIME), 180.);
+        TailBladeRot = TAIL_SPEED_RATIO * TopBladeRot;
+    }
 
     // force a call to Display( ) next time it is convenient:
     glutSetWindow(MainWindow);
@@ -386,17 +404,16 @@ void Display()
     else
         gluLookAt(0., 0., 3., 0., 0., 0., 0., 1., 0.);
 
-    // rotate the scene, but only if in outside view
+    // uniformly rotate and scale the scene, but only if in outside view
     if (CurrView == OUTSIDE_VIEW) {
         glRotatef((GLfloat)Xrot, 1., 0., 0.);
         glRotatef((GLfloat)Yrot, 0., 1., 0.);
         glRotatef((GLfloat)Zrot, 0., 0., 1.);
-    }
 
-    // uniformly scale the scene:
-    if (Scale < MINSCALE)
-        Scale = MINSCALE;
-    glScalef((GLfloat)Scale, (GLfloat)Scale, (GLfloat)Scale);
+        if (Scale < MINSCALE)
+            Scale = MINSCALE;
+        glScalef((GLfloat)Scale, (GLfloat)Scale, (GLfloat)Scale);
+    }    
 
     // set the fog parameters:
     if (DepthCueOn != 0) {
@@ -410,31 +427,42 @@ void Display()
         glDisable(GL_FOG);
     }
 
-    // possibly draw the axes:
-    if (AxesOn != 0) {
-        glColor3fv(&Colors[WhichColor][0]);
-        glCallList(AxesList);
-    }
-
     // since we are using glScalef( ), be sure normals get unitized:
     glEnable(GL_NORMALIZE);
 
+    // possibly draw the origin axes
+    if (OriginAxesOn != 0) {
+        glPushMatrix();
+        glScalef(OriginAxesScale, OriginAxesScale, OriginAxesScale);
+        glColor3fv(&Colors[WhichColor][0]);
+        glCallList(AxesList);
+        glPopMatrix();
+    }
+
     // Draw the main scene objects (helicopter and blades)
     glCallList(HeliList);
+    DrawHelicopterBlades();
 
-    // Apply blade transformations
-    // Draw blades
-
-    // Apply front scene transformations
+    // Apply front scene transformations to a copy of curr matrix
     glPushMatrix();
-    // Apply front-specific translation transformation
-    glTranslatef(0., 1., -10.);
-    // Apply front-specific rotation transformation
-    glRotatef((GLfloat)FrontXrot, 1., 0., 0.);
-    glRotatef((GLfloat)FrontYrot, 0., 1., 0.);
-    glRotatef((GLfloat)FrontZrot, 0., 0., 1.);
-    // Draw front scene objects (sphere)
-    glCallList(SphereList);
+        // Apply front-specific translation transformation
+        glTranslatef(0., 1., -10.);
+        // possibly draw the fixed front axes
+        if (FrontAxesOn != 0) {
+            glColor3fv(&Colors[WhichColor][0]);
+            glCallList(AxesList);
+        }
+        // Apply front-specific rotation transformation
+        glRotatef((GLfloat)FrontXrot, 1., 0., 0.);
+        glRotatef((GLfloat)FrontYrot, 0., 1., 0.);
+        glRotatef((GLfloat)FrontZrot, 0., 0., 1.);
+        // Draw front scene objects (sphere)
+        glCallList(SphereList);
+        // possibly draw the rotated sphere front axes
+        if (SphereAxesOn != 0) {
+            glColor3fv(&Colors[WhichColor][0]);
+            glCallList(AxesList);
+        }
     // Pop transformations
     glPopMatrix();
 
@@ -443,8 +471,7 @@ void Display()
     // glColor3f(0., 1., 1.);
     // DoRasterString(0., 1., 0., (char *)"Text That Moves");
 
-    // draw some gratuitous text that is fixed on the screen:
-    //
+    // maybe draw some gratuitous text that is fixed on the screen:
     // the projection matrix is reset to define a scene whose
     // world coordinate system goes from 0-100 in each axis
     //
@@ -458,12 +485,26 @@ void Display()
     gluOrtho2D(0., 100., 0., 100.);
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-    glColor3f(1., 1., 1.);
     char sliceStr[50];
-    sprintf(sliceStr,
-            "Vertical=%i; Arc=%i; Controls=Space,R,Q,E,[shift]wasd",
-            (int)SphereVertSlices, (int)SphereArcSlices);
-    DoRasterString(5., 5., 0., sliceStr);
+    if (DrawHelpText) {
+        glColor3f(1., 1., 1.);
+        sprintf(sliceStr,
+                "Controls = Space, F, R, Q, E, V, /, ?, ., [shift]wasd",
+                // "Vertical=%i; Arc=%i; Controls=Space,R,Q,E,.,v,[shift]wasd",
+                (int)SphereVertSlices, (int)SphereArcSlices);
+        DoRasterString(5., 5., 0., sliceStr);
+    }
+    if (DrawSlicesText) {
+        glColor3f(1., 1., 1.);
+        sprintf(sliceStr,
+                "Vertical = %i",
+                (int)SphereVertSlices, (int)SphereArcSlices);
+        DoRasterString(5., 10., 0., sliceStr);
+        sprintf(sliceStr,
+                "Arc = %i",
+                (int)SphereVertSlices, (int)SphereArcSlices);
+        DoRasterString(30., 10., 0., sliceStr);
+    }
 
     // swap the double-buffered framebuffers:
     glutSwapBuffers();
@@ -471,6 +512,40 @@ void Display()
     // be sure the graphics buffer has been sent:
     // note: be sure to use glFlush( ) here, not glFinish( ) !
     glFlush();
+}
+
+void DrawHelicopterBlades()
+{
+    // printf("top=%f; tail=%f; \n", TopBladeRot, TailBladeRot);
+    // Draw the top blade
+    glPushMatrix();
+        // Apply translation up to top of heli
+        glTranslatef(0., 2.9, -1.5);
+        // Apply scaling up to radius 5 (from 1)
+        glScalef(5., 5., 5.);
+        // Apply animation rotation
+        glRotatef(TopBladeRot, 0., 1., 0.);
+        // Apply rotation abt X
+        glRotatef(90., 1., 0., 0.);
+        // Draw the blade
+        glCallList(BladeList);
+    // Pop top blade transormations
+    glPopMatrix();
+
+    // Draw the tail blade
+    glPushMatrix();
+        // Apply translation up to top of heli
+        glTranslatef(0.5, 2.5, 9.);
+        // Apply scaling up to radius 3 (from 1)
+        glScalef(3., 3., 3.);
+        // Apply animation rotation
+        glRotatef(TailBladeRot, 1., 0., 0.);
+        // Apply rotation abt Y
+        glRotatef(90., 0., 1., 0.);
+        // Draw the blade
+        glCallList(BladeList);
+    // Pop top blade transormations
+    glPopMatrix();
 }
 
 void DoVertSlicesMenu(int id)
@@ -493,7 +568,7 @@ void DoArcSlicesMenu(int id)
     glutPostRedisplay();
 }
 
-void DoRotateMenu(int id)
+void DoSphereRotateMenu(int id)
 {
     SphereRotateOn = (id == 1) ? (true) : (false);
 
@@ -501,9 +576,31 @@ void DoRotateMenu(int id)
     glutPostRedisplay();
 }
 
+void DoSphereSlicesMenu(int id)
+{
+    SphereSliceAnimateOn = (id == 1) ? (true) : (false);
+
+    glutSetWindow(MainWindow);
+    glutPostRedisplay();
+}
+
+void DoBladesRotateMenu(int id)
+{
+    BladesRotateOn = (id == 1) ? (true) : (false);
+
+    glutSetWindow(MainWindow);
+    glutPostRedisplay();
+}
+
 void DoAxesMenu(int id)
 {
-    AxesOn = id;
+    // Toggle origin or front axes
+    if (id < 2)
+        OriginAxesOn = id;
+    else if (id < 4)
+        FrontAxesOn = id-2;
+    else
+        SphereAxesOn = id-4;
 
     glutSetWindow(MainWindow);
     glutPostRedisplay();
@@ -648,7 +745,15 @@ void InitMenus()
         glutAddMenuEntry(std::to_string(ArcSlices[i]).c_str(), i);
     }
     
-    int rotatemenu = glutCreateMenu(DoRotateMenu);
+    int sphererotatemenu = glutCreateMenu(DoSphereRotateMenu);
+    glutAddMenuEntry("Off", 0);
+    glutAddMenuEntry("On", 1);
+    
+    int sphereslicesmenu = glutCreateMenu(DoSphereSlicesMenu);
+    glutAddMenuEntry("Off", 0);
+    glutAddMenuEntry("On", 1);
+
+    int bladesrotatemenu = glutCreateMenu(DoBladesRotateMenu);
     glutAddMenuEntry("Off", 0);
     glutAddMenuEntry("On", 1);
 
@@ -659,8 +764,12 @@ void InitMenus()
     }
 
     int axesmenu = glutCreateMenu(DoAxesMenu);
-    glutAddMenuEntry("Off", 0);
-    glutAddMenuEntry("On", 1);
+    glutAddMenuEntry("Origin Off", 0);
+    glutAddMenuEntry("Origin On", 1);
+    glutAddMenuEntry("Front Off", 2);
+    glutAddMenuEntry("Front On", 3);
+    glutAddMenuEntry("Sphere Off", 4);
+    glutAddMenuEntry("Sphere On", 5);
 
     int depthcuemenu = glutCreateMenu(DoDepthMenu);
     glutAddMenuEntry("Off", 0);
@@ -689,13 +798,17 @@ void InitMenus()
     int mainmenu = glutCreateMenu(DoMainMenu);
     glutAddSubMenu("Vert Slices", vertmenu);
     glutAddSubMenu("Arc Slices", arcmenu);
-    glutAddSubMenu("Rotate", rotatemenu);
-    glutAddSubMenu("Axes", axesmenu);
-    glutAddSubMenu("Colors", colormenu);
+    glutAddSubMenu("Rotate Sphere", sphererotatemenu);
+    glutAddSubMenu("Animate Sphere Slices", sphereslicesmenu);
+    glutAddSubMenu("Rotate Blades", bladesrotatemenu);
+    glutAddSubMenu("Toggle Axes", axesmenu);
+    glutAddSubMenu("Axes Color", colormenu);
     glutAddSubMenu("Depth Cue", depthcuemenu);
-    glutAddSubMenu("Projection", projmenu);
+    // glutAddSubMenu("Depth Buffer", depthbuffermenu);
+    // glutAddSubMenu("Shadows", shadowsmenu);
+    // glutAddSubMenu("Projection", projmenu);
     glutAddMenuEntry("Reset", RESET);
-    glutAddSubMenu("Debug", debugmenu);
+    // glutAddSubMenu("Debug", debugmenu);
     glutAddMenuEntry("Quit", QUIT);
 
     // attach the pop-up menu to the right mouse button:
@@ -791,6 +904,9 @@ void InitLists()
     // Create the helicopter list
     CreateHeliList();
 
+    // Create the blade list
+    CreateBladeList();
+
     // Create the axes lists
     AxesList = glGenLists(1);
     glNewList(AxesList, GL_COMPILE);
@@ -843,7 +959,7 @@ void CreateHeliList() {
             n[1] += .25;
             if (n[1] > 1.)
                 n[1] = 1.;
-            glColor3f(0., n[1], 0.);
+            glColor3f(0., n[1], 0.5);
 
             glVertex3f(p0->x, p0->y, p0->z);
             glVertex3f(p1->x, p1->y, p1->z);
@@ -862,6 +978,30 @@ void CreateHeliList() {
     // glEnd();
 
     glPopMatrix();
+
+    glEndList();
+}
+
+void CreateBladeList() {
+    // Set to the main window
+    glutSetWindow(MainWindow);
+
+    // Start blade list
+    BladeList = glGenLists(1);
+    glNewList(BladeList, GL_COMPILE);
+
+    // draw the helicopter blade with radius BLADE_RADIUS and
+    //	width BLADE_WIDTH centered at (0.,0.,0.) in the XY plane
+    glColor3f(0.8, 1., 0.8);
+    glBegin(GL_TRIANGLES);
+        glVertex2f(  BLADE_RADIUS,  BLADE_WIDTH/2. );
+        glVertex2f(  0., 0. );
+        glVertex2f(  BLADE_RADIUS, -BLADE_WIDTH/2. );
+
+        glVertex2f( -BLADE_RADIUS, -BLADE_WIDTH/2. );
+        glVertex2f(  0., 0. );
+        glVertex2f( -BLADE_RADIUS,  BLADE_WIDTH/2. );
+    glEnd();
 
     glEndList();
 }
@@ -979,10 +1119,10 @@ void Keyboard(unsigned char c, int x, int y)
 
     switch (c)
     {
-    case 'o':
-    case 'O':
-        WhichProjection = ORTHO;
-        break;
+    // case 'o':
+    // case 'O':
+    //     WhichProjection = ORTHO;
+    //     break;
 
     case 'p':
     case 'P':
@@ -1056,10 +1196,28 @@ void Keyboard(unsigned char c, int x, int y)
         SphereSliceAnimateOn = !SphereSliceAnimateOn;
         break;
 
+    case 'f':
+        BladesRotateOn = !BladesRotateOn;
+        break;
+
     case 'e':
     case 'E':
         WireframeMode = !WireframeMode;
         UpdateSphereList();
+        break;
+
+    case '.':
+        OriginAxesOn = !OriginAxesOn;
+        FrontAxesOn = !FrontAxesOn;
+        SphereAxesOn = !SphereAxesOn;
+        break;
+
+    case '?':
+        DrawHelpText = !DrawHelpText;
+        break;
+
+    case '/':
+        DrawSlicesText = !DrawSlicesText;
         break;
 
     case 'q':
@@ -1104,17 +1262,22 @@ void MouseButton(int button, int state, int x, int y)
         break;
 
     case SCROLL_WHEEL_UP:
-        Scale += SCLFACT * SCROLL_WHEEL_CLICK_FACTOR;
-        // keep object from turning inside-out or disappearing:
-        if (Scale < MINSCALE)
-            Scale = MINSCALE;
+        // only change if in outside view
+        if (CurrView == OUTSIDE_VIEW) {
+            Scale += SCLFACT * SCROLL_WHEEL_CLICK_FACTOR;
+            // keep object from turning inside-out or disappearing:
+            if (Scale < MINSCALE)
+                Scale = MINSCALE;
+        }
         break;
 
     case SCROLL_WHEEL_DOWN:
-        Scale -= SCLFACT * SCROLL_WHEEL_CLICK_FACTOR;
-        // keep object from turning inside-out or disappearing:
-        if (Scale < MINSCALE)
-            Scale = MINSCALE;
+        if (CurrView == OUTSIDE_VIEW) {
+            Scale -= SCLFACT * SCROLL_WHEEL_CLICK_FACTOR;
+            // keep object from turning inside-out or disappearing:
+            if (Scale < MINSCALE)
+                Scale = MINSCALE;
+        }
         break;
 
     default:
@@ -1152,19 +1315,22 @@ void MouseMotion(int x, int y)
 
     if ((ActiveButton & LEFT) != 0)
     {
-        Xrot += (ANGFACT * dy);
-        Yrot += (ANGFACT * dx);
-        Zrot += (ANGFACT * dz);
+        if (CurrView == OUTSIDE_VIEW) {
+            Xrot += (ANGFACT * dy);
+            Yrot += (ANGFACT * dx);
+            Zrot += (ANGFACT * dz);
+        }
     }
 
     if ((ActiveButton & MIDDLE) != 0)
     {
-        Scale += SCLFACT * (float)(dx - dy);
+        if (CurrView == OUTSIDE_VIEW) {
+            Scale += SCLFACT * (float)(dx - dy);
 
-        // keep object from turning inside-out or disappearing:
-
-        if (Scale < MINSCALE)
-            Scale = MINSCALE;
+            // keep object from turning inside-out or disappearing:
+            if (Scale < MINSCALE)
+                Scale = MINSCALE;
+        }
     }
 
     Xmouse = x; // new current position
@@ -1181,33 +1347,37 @@ void MouseMotion(int x, int y)
 void Reset()
 {
     ActiveButton = 0;
-    AxesOn = 0;
+    OriginAxesOn = 0;
+    FrontAxesOn = 0;
+    SphereAxesOn = 0;
+    OriginAxesScale = 2.5;
     DebugOn = 0;
     DepthBufferOn = 1;
     DepthFightingOn = 0;
-    DepthCueOn = 0;
-    Scale = 1.;
+    DepthCueOn = 1;
+    Scale = 0.9;
     ShadowsOn = 0;
     WhichColor = WHITE;
-    WhichProjection = PERSP;
-    // Xrot = 10.;
-    // Yrot = -30.;
-    Xrot = -10.;
-    Yrot = -20.;
+    WhichProjection = PERSP; 
+    Xrot = 3.;
+    Yrot = -7.;
     Zrot = 0.;
+    TopBladeRot, TailBladeRot = 0., 0.;
+    BladesRotateOn = true;
     SphereVertSlices = SPHERE_DEF_VERT;
     SphereArcSlices = SPHERE_DEF_ARC;
-    SphereRotateOn = false;
-    SphereSliceAnimateOn = false;
+    SphereRotateOn = true;
+    SphereSliceAnimateOn = true;
     SphereArcSliceAnimateDir = 1; 
     SphereVertSliceAnimateDir = 1;
     WireframeMode = false;
+    DrawHelpText = true;
+    DrawSlicesText = true;
     CurrView = OUTSIDE_VIEW;
     UpdateSphereList();
 }
 
 // called when user resizes the window:
-
 void Resize(int width, int height)
 {
     if (DebugOn != 0)
@@ -1221,7 +1391,6 @@ void Resize(int width, int height)
 }
 
 // handle a change to the window's visibility:
-
 void Visibility(int state)
 {
     if (DebugOn != 0)
