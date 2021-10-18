@@ -1,6 +1,7 @@
-// Intro to Computer Graphics - Project 2 - Animated Helicopter
+// Intro to Computer Graphics - Project 3 - Texture Mapping
 // Author - Nicholas Olson
-// Date -   10/12/2021
+// Date -   10/17/2021
+// Texture Source - https://opengameart.org/content/helicopter-3
 
 
 // Includes
@@ -43,8 +44,8 @@
 // Constants
 
 // title of these windows:
-const char *WINDOWTITLE = {"Helicopter (P2) -- Nicholas Olson"};
-const char *GLUITITLE = {"Helicopter UI"};
+const char *WINDOWTITLE = {"Texture Mapping (P3) -- Nicholas Olson"};
+const char *GLUITITLE = {"Texture-Mapped Helicopter UI"};
 
 // what the glui package defines as true and false:
 const int GLUITRUE = {true};
@@ -177,6 +178,16 @@ const GLfloat FOGEND = {25.};
 const int OUTSIDE_VIEW = 0;
 const int INSIDE_VIEW = 1;
 
+// texture constants
+// char *TEXTURE_PATH = "chopper.bmp";
+char *TEXTURE_PATH = "chopper_transparent.bmp";
+int TEXTURE_WIDTH = 235;
+int TEXTURE_HEIGHT = 190;
+const int DISTORT_TEX_TIME = 1000;
+const char* TEX_DISPLAY_OPTIONS[] = {"No Texture", "Tex Replaced", "Tex Modulated"};
+const char* TEX_DISTORT_OPTIONS[] = {"No Animation", "Small Animation", "Whoosh Animation"};
+
+
 // non-constant global variables:
 int ActiveButton;    // current button that is down
 GLuint AxesList;     // list to hold the axes
@@ -212,6 +223,12 @@ int SphereVertSliceAnimateDir; // either -1 or 1 to show which way verts are ani
 bool WireframeMode;
 float SphereVertSlices;
 float SphereArcSlices;
+unsigned char *Texture;
+bool DistortTexOn;
+int TexSel;
+int TexDistortSel;
+float DistortTexTheta;
+GLuint Tex0;
 int CurrView;        // current viewmode (0=outside, 1=inside)
 
 // helicopter file include
@@ -236,6 +253,7 @@ float ElapsedSeconds();
 void InitGraphics();
 void InitLists();
 void CreateHeliList();
+void DrawHeli();
 void CreateBladeList();
 void UpdateSphereList();
 void InitMenus();
@@ -349,6 +367,11 @@ void Animate()
         TailBladeRot = TAIL_SPEED_RATIO * TopBladeRot;
     }
 
+    // Handle texture distortion
+    if (DistortTexOn) {
+        DistortTexTheta = 2.0 * M_PI * (float) (ms % DISTORT_TEX_TIME) / DISTORT_TEX_TIME;
+    }
+
     // force a call to Display( ) next time it is convenient:
     glutSetWindow(MainWindow);
     glutPostRedisplay();
@@ -440,7 +463,8 @@ void Display()
     }
 
     // Draw the main scene objects (helicopter and blades)
-    glCallList(HeliList);
+    // glCallList(HeliList);
+    DrawHeli();
     DrawHelicopterBlades();
 
     // Apply front scene transformations to a copy of curr matrix
@@ -489,7 +513,7 @@ void Display()
     if (DrawHelpText) {
         glColor3f(1., 1., 1.);
         sprintf(sliceStr,
-                "Controls = Space, F, R, Q, E, V, /, ?, ., [shift]wasd",
+                "Controls = Space, t, T, F, R, Q, E, V, /, ?, ., [shift]wasd",
                 // "Vertical=%i; Arc=%i; Controls=Space,R,Q,E,.,v,[shift]wasd",
                 (int)SphereVertSlices, (int)SphereArcSlices);
         DoRasterString(5., 5., 0., sliceStr);
@@ -541,6 +565,22 @@ void DrawHelicopterBlades()
         glCallList(BladeList);
     // Pop top blade transormations
     glPopMatrix();
+}
+
+void DoTexMenu(int id)
+{
+    TexSel = id;
+
+    glutSetWindow(MainWindow);
+    glutPostRedisplay();
+}
+
+void DoDistortMenu(int id)
+{
+    TexDistortSel = id;
+
+    glutSetWindow(MainWindow);
+    glutPostRedisplay();
 }
 
 void DoVertSlicesMenu(int id)
@@ -726,6 +766,20 @@ void InitMenus()
 {
     glutSetWindow(MainWindow);
 
+    int numTexOptions = sizeof(TEX_DISPLAY_OPTIONS) / sizeof(char*);
+    int texturemenu = glutCreateMenu(DoTexMenu);
+    for (int i = 0; i < numTexOptions; i++)
+    {
+        glutAddMenuEntry(TEX_DISPLAY_OPTIONS[i], i);
+    }
+    
+    int numDistortOptions = sizeof(TEX_DISTORT_OPTIONS) / sizeof(char*);
+    int distortmenu = glutCreateMenu(DoDistortMenu);
+    for (int i = 0; i < numDistortOptions; i++)
+    {
+        glutAddMenuEntry(TEX_DISTORT_OPTIONS[i], i);
+    }
+
     int numVertOptions = sizeof(VertSlices) / sizeof(float);
     int vertmenu = glutCreateMenu(DoVertSlicesMenu);
     for (int i = 0; i < numVertOptions; i++)
@@ -791,6 +845,8 @@ void InitMenus()
     glutAddMenuEntry("On", 1);
 
     int mainmenu = glutCreateMenu(DoMainMenu);
+    glutAddSubMenu("Texture Options", texturemenu);
+    glutAddSubMenu("Distortion Options", distortmenu);
     glutAddSubMenu("Vert Slices", vertmenu);
     glutAddSubMenu("Arc Slices", arcmenu);
     glutAddSubMenu("Rotate Sphere", sphererotatemenu);
@@ -816,21 +872,17 @@ void InitGraphics()
 {
     // request the display modes:
     // ask for red-green-blue-alpha color, double-buffering, and z-buffering:
-
     glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE | GLUT_DEPTH);
 
     // set the initial window configuration:
-
     glutInitWindowPosition(0, 0);
     glutInitWindowSize(INIT_WINDOW_SIZE, INIT_WINDOW_SIZE);
 
     // open the window and set its title:
-
     MainWindow = glutCreateWindow(WINDOWTITLE);
     glutSetWindowTitle(WINDOWTITLE);
 
     // set the framebuffer clear values:
-
     glClearColor(BACKCOLOR[0], BACKCOLOR[1], BACKCOLOR[2], BACKCOLOR[3]);
 
     // setup the callback functions:
@@ -877,8 +929,7 @@ void InitGraphics()
     glutIdleFunc(Animate);
 
     // init glew (a window must be open to do this):
-
-#ifdef WIN32
+#ifdef _WIN32
     GLenum err = glewInit();
     if (err != GLEW_OK)
     {
@@ -888,6 +939,54 @@ void InitGraphics()
         fprintf(stderr, "GLEW initialized OK\n");
     fprintf(stderr, "Status: Using GLEW %s\n", glewGetString(GLEW_VERSION));
 #endif
+
+    // Get textures
+    Texture = BmpToTexture(TEXTURE_PATH, &TEXTURE_WIDTH, &TEXTURE_HEIGHT);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+    // Create texture objects
+    glGenTextures(1, &Tex0);
+
+    // Bind for first time
+    glBindTexture(GL_TEXTURE_2D, Tex0);
+
+    // Setup Texture
+    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT); // or GL_CLAMP
+    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP); // or GL_CLAMP
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); // or GL_LINEAR
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+    // glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE); // or GL_REPLACE
+    // glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE); // or GL_MODULATE
+
+    // Rotate texture coord space
+    glMatrixMode(GL_TEXTURE);
+    glScalef(0.1, 0.15, 1.);
+    glTranslatef(4.5, 3.1, 0.);
+    glRotatef(15., 0., 0., 1.);
+    glMatrixMode(GL_MODELVIEW);
+
+    // Backup
+    // // glRotatef(10., 0., 0., 1.);
+    // // glTranslatef(0.5, 0., 0.);
+    // glScalef(1., 0.15, 1.);
+    // // glScalef(1., 0.3, 1.);
+    // // glTranslatef(0.5, -1., 0.);
+    // glScalef(0.1, 1., 1.);
+    // // glScalef(0.08, 1., 1.);
+    // // glScalef(0.125, 1., 1.);
+    // // glTranslatef(4, -0.5, 0.);
+    // glTranslatef(4., 0.75, 0.);
+    // glTranslatef(0.5, 2.35, 0.);
+    // glRotatef(15., 0., 0., 1.);
+    // glMatrixMode(GL_MODELVIEW);
+
+    // Apply Texture
+    glTexImage2D(GL_TEXTURE_2D, 0, 4,
+                 TEXTURE_WIDTH, TEXTURE_HEIGHT,
+                 0, GL_RGB, GL_UNSIGNED_BYTE, Texture);
 }
 
 // initialize the display lists that will not change:
@@ -917,50 +1016,120 @@ void InitLists()
 void CreateHeliList() {
     // Set to the main window
     glutSetWindow(MainWindow);
+    
+    // Start heli list
+    HeliList = glGenLists(1);
+    glNewList(HeliList, GL_COMPILE);
 
+    // Draw heli
+    DrawHeli();
+
+    // End list
+    glEndList();
+}
+
+void DrawHeli() {
     // Create locals
     int i;
     struct edge *ep;
     struct point *p0, *p1, *p2;
     struct tri *tp;
     float p01[3], p02[3], n[3];
-    
-    // Start heli list
-    HeliList = glGenLists(1);
-    glNewList(HeliList, GL_COMPILE);
 
+    // Push current matrix
     glPushMatrix();
     glTranslatef(0., -1., 0.5);
     glRotatef(97., 0., 1., 0.);
     glRotatef(-15., 0., 0., 1.);
 
+    // Set min and max on coords for texture mapping
+    float min_z = 0, max_z = 0;
+    float min_y = -1, max_y = 1;
+    float min_x = -1, max_x = 1;
+
+    // Apply Tex0 (or not) with different settings as requested
+    switch (TexSel) {
+        case 1: // Replace
+            glEnable(GL_TEXTURE_2D);
+            glBindTexture(GL_TEXTURE_2D, Tex0);
+            glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE); // or GL_MODULATE
+            break;
+        case 2: // Modulate
+            glEnable(GL_TEXTURE_2D);
+            glBindTexture(GL_TEXTURE_2D, Tex0);
+            glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE); // or GL_REPLACE
+            break;
+        // Do nothing in case 0 of no texture
+    }
+
+    // Build geometry
     glBegin(GL_TRIANGLES);
-        for (i = 0, tp = Helitris; i < Helintris; i++, tp++)
-        {
-            p0 = &Helipoints[tp->p0];
-            p1 = &Helipoints[tp->p1];
-            p2 = &Helipoints[tp->p2];
+    for (i = 0, tp = Helitris; i < Helintris; i++, tp++)
+    {
+        // get points of tri
+        p0 = &Helipoints[tp->p0];
+        p1 = &Helipoints[tp->p1];
+        p2 = &Helipoints[tp->p2];
 
-            // fake "lighting" from above:
-            p01[0] = p1->x - p0->x;
-            p01[1] = p1->y - p0->y;
-            p01[2] = p1->z - p0->z;
-            p02[0] = p2->x - p0->x;
-            p02[1] = p2->y - p0->y;
-            p02[2] = p2->z - p0->z;
-            Cross(p01, p02, n);
-            Unit(n, n);
-            n[1] = fabs(n[1]);
-            n[1] += .25;
-            if (n[1] > 1.)
-                n[1] = 1.;
-            glColor3f(0., n[1], 0.5);
+        // fake "lighting" from above:
+        p01[0] = p1->x - p0->x;
+        p01[1] = p1->y - p0->y;
+        p01[2] = p1->z - p0->z;
+        p02[0] = p2->x - p0->x;
+        p02[1] = p2->y - p0->y;
+        p02[2] = p2->z - p0->z;
+        Cross(p01, p02, n);
+        Unit(n, n);
+        n[1] = fabs(n[1]);
+        n[1] += .25;
+        if (n[1] > 1.)
+            n[1] = 1.;
+        glColor3f(0.75, 0.75 + (n[1] / 4.), 1.);
+        // glColor3f(0., n[1], 0.5);
 
-            glVertex3f(p0->x, p0->y, p0->z);
-            glVertex3f(p1->x, p1->y, p1->z);
-            glVertex3f(p2->x, p2->y, p2->z);
+        // find texture coords
+        float p0_s = 1 - (p0->x - min_x) / (max_x - min_x);
+        float p1_s = 1 - (p1->x - min_x) / (max_x - min_x);
+        float p2_s = 1 - (p2->x - min_x) / (max_x - min_x);
+        float p0_t = (p0->y - min_y) / (max_y - min_y);
+        float p1_t = (p1->y - min_y) / (max_y - min_y);
+        float p2_t = (p2->y - min_y) / (max_y - min_y);
+
+        // calculate distortion params
+        float s_off = 0.;
+        float t_off = 0.;
+        float sine = 1.;
+        float cosine = 1.;
+        switch (TexDistortSel) {
+            case 1: // Small
+                s_off = 0.;
+                sine = 2 - sin(DistortTexTheta);
+                t_off = -2.5;
+                cosine = 3 - cos(DistortTexTheta);
+                break;
+            case 2: // Whoosh
+                s_off = 2.;
+                sine = -1.5*sin(DistortTexTheta);
+                t_off = 0.5;
+                cosine = -cos(DistortTexTheta);
+                break;
+            // Do nothing in case 0 of no animation
         }
+
+        // write texture coords and vertices
+        // glTexCoord2f(p0_s, p0_t);
+        glTexCoord2f(s_off+sine*p0_s, t_off+cosine*p0_t);
+        glVertex3f(p0->x, p0->y, p0->z);
+        glTexCoord2f(s_off+sine*p1_s, t_off+cosine*p1_t);
+        // glTexCoord2f(p1_s, p1_t);
+        glVertex3f(p1->x, p1->y, p1->z);
+        glTexCoord2f(s_off+sine*p2_s, t_off+cosine*p2_t);
+        // glTexCoord2f(p2_s, p2_t);
+        glVertex3f(p2->x, p2->y, p2->z);
+    }
     glEnd();
+
+    glDisable(GL_TEXTURE_2D);
 
     // glBegin( GL_LINES );
     //     for( i=0, ep = Heliedges; i < Helinedges; i++, ep++ )
@@ -973,8 +1142,6 @@ void CreateHeliList() {
     // glEnd();
 
     glPopMatrix();
-
-    glEndList();
 }
 
 void CreateBladeList() {
@@ -987,7 +1154,8 @@ void CreateBladeList() {
 
     // draw the helicopter blade with radius BLADE_RADIUS and
     //	width BLADE_WIDTH centered at (0.,0.,0.) in the XY plane
-    glColor3f(0.8, 1., 0.8);
+    glColor3f(0.7, 0.9, 0.7);
+    // glColor3f(0.8, 1., 0.8);
     glBegin(GL_TRIANGLES);
         glVertex2f(  BLADE_RADIUS,  BLADE_WIDTH/2. );
         glVertex2f(  0., 0. );
@@ -1215,6 +1383,20 @@ void Keyboard(unsigned char c, int x, int y)
         DrawSlicesText = !DrawSlicesText;
         break;
 
+    case 't':
+        // Cycle through texture options
+        TexSel += 1;
+        if (TexSel >= sizeof(TEX_DISPLAY_OPTIONS) / sizeof(char*))
+            TexSel = 0;
+        break;
+
+    case 'T':
+        // Cycle through texture distortion options
+        TexDistortSel += 1;
+        if (TexDistortSel >= sizeof(TEX_DISTORT_OPTIONS) / sizeof(char*))
+            TexDistortSel = 0;
+        break;
+
     case 'q':
     case 'Q':
     case ESCAPE:
@@ -1349,7 +1531,7 @@ void Reset()
     DebugOn = 0;
     DepthBufferOn = 1;
     DepthFightingOn = 0;
-    DepthCueOn = 1;
+    DepthCueOn = 0;
     Scale = 0.9;
     ShadowsOn = 0;
     WhichColor = WHITE;
@@ -1367,8 +1549,12 @@ void Reset()
     SphereVertSliceAnimateDir = 1;
     WireframeMode = false;
     DrawHelpText = true;
-    DrawSlicesText = true;
+    DrawSlicesText = false;
     CurrView = OUTSIDE_VIEW;
+    DistortTexOn = true;
+    TexDistortSel = 0;
+    TexSel = 0;
+    DistortTexTheta = 0.;
     UpdateSphereList();
 }
 
@@ -1639,7 +1825,6 @@ BmpToTexture(char *filename, int *width, int *height)
     }
 
     // extra padding bytes:
-
     int requiredRowSizeInBytes = 4 * ((InfoHeader.biBitCount * InfoHeader.biWidth + 31) / 32);
     if (VERBOSE)
         fprintf(stderr, "requiredRowSizeInBytes = %d\n", requiredRowSizeInBytes);
@@ -1657,7 +1842,6 @@ BmpToTexture(char *filename, int *width, int *height)
         fprintf(stderr, "New NumExtra padding = %d\n", numExtra);
 
     // this function does not support compression:
-
     if (InfoHeader.biCompression != 0)
     {
         fprintf(stderr, "Wrong type of image compression: %d\n", InfoHeader.biCompression);
