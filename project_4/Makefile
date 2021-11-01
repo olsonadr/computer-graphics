@@ -11,13 +11,13 @@ ifeq ($(OS),Windows_NT)
 	OUTDIR := $(OUTDIR:/=\\)\\
 	OUTFILE = $(OUTFILE).exe
 	RUNCMD = $(OUTDIR)$(OUTFILE)
-    CCFLAGS += -lopengl32 -lGLU32 -lfreeglut -lglew32
+    CCFLAGS += -lopengl32 -lGLU32 -lfreeglut -lglew32 -Wwrite-strings
 # Add linux compiler options and run command
 else
 	SRCDIR := $(SRCDIR)/
 	OUTDIR := $(OUTDIR)/
 	RUNCMD = $(OUTDIR)$(OUTFILE)
-	CCFLAGS += -lGL -lGLU -lglut /usr/lib64/libglut.so
+	CCFLAGS += -lGL -lGLU -lglut /usr/lib64/libglut.so -Wwrite-strings
 endif
 
 build: proj.cpp

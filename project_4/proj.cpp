@@ -1,7 +1,8 @@
 // Intro to Computer Graphics - Project 4 - Lighting
 // Author - Nicholas Olson
-// Date -   10/20/2021
+// Date -   11/01/2021
 // Texture Source - https://opengameart.org/content/helicopter-3
+// OBJ Source - https://www.cgtrader.com/free-3d-models/aircraft/helicopter/cartoon-low-poly-helicopter
 
 
 // Includes
@@ -18,6 +19,7 @@
 
 #define _USE_MATH_DEFINES
 #include <math.h>
+// #include <cmath.h>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -50,24 +52,35 @@
 #include "heli.550"
 #include "lightinghelpers.cpp"
 #include "osusphere.cpp"
+#include "loadobj.cpp"
 
 // Structs for objects and lights
 struct object {
-    GLuint List;            // object's display list
-    float BR, BG, BB = 0.8; // object's back color as RGB
-    float R, G, B = 1.0;    // object's front color as RGB
-    float X, Y, Z = 0.0;    // object's x,y,z translation
-    float Xr, Yr, Zr = 0.0; // object's rotation about x,y,z
-    float Scale = 1.0;      // object's scale for x,y,z
+    GLuint List;               // object's display list
+    float BR=.8, BG=.8, BB=.8; // object's back color as RGB
+    float R=1., G=1., B=1.;    // object's front color as RGB
+    float X=0., Y=0., Z=.0;    // object's x,y,z translation
+    float Xr=0., Yr=0., Zr=0.; // object's rotation about x,y,z
+    float Scale = 1.0;         // object's scale for x,y,z
+    float ambient = 1.;        // object's ambient reflection
+    float diffuse = 1.;        // object's diffuse reflection
+    float specular = 0.4;      // object's specular reflection
+    float shiny = 1.;          // object's shininess
 };
 struct light {
     // float* color = Array3(1., 1., 1.); // light's color
     // float* pos = Array3(0., 0., 0.);   // light's x,y,z pos
-    float X, Y, Z = 0.;     // light's pos as XYZ
-    float R, G, B = 1.;     // light's color as RGB
+    float X=0., Y=0., Z=0.;     // light's pos as XYZ
+    float R=1., G=1., B=1.;     // light's color as RGB
     float ambient = 0.;     // light's ambient component
     float diffuse = 1.;     // light's diffuse component
     float specular = 1.;    // light's specular component
+    GLuint num;
+};
+struct spotlight : public light {
+    float DX=0., DY=-1., DZ=0.; // spotlight's direction
+    float exp = 1.;             // directional intensity
+    float spread = 30.;         // spotlight spread angle
 };
 
 
@@ -82,8 +95,8 @@ struct light {
 // Constants
 
 // title of these windows:
-const char *WINDOWTITLE = {"Texture Mapping (P3) -- Nicholas Olson"};
-const char *GLUITITLE = {"Texture-Mapped Helicopter UI"};
+const char *WINDOWTITLE = {"Lighting (P4) -- Nicholas Olson"};
+const char *GLUITITLE = {"OpenGL Scene Lighting UI"};
 
 // what the glui package defines as true and false:
 const int GLUITRUE = {true};
@@ -101,15 +114,15 @@ const float BOXSIZE = {2.f};
 // 3d sphere parameters:
 const float SPHERE_RADIUS = {1.f};
 const int SPHERE_MIN_VERT = {2};
-const int SPHERE_MIN_ARC = {2};
-const int SPHERE_MAX_VERT = {30}; // different from eachother so they cycle
-const int SPHERE_MAX_ARC = {40};  // around to get a full range of combinations
+const int SPHERE_MIN_ARC = {3};
+const int SPHERE_MAX_VERT = {60}; // different from eachother so they cycle
+const int SPHERE_MAX_ARC = {50};  // around to get a full range of combinations
 const int SPHERE_DEF_VERT = {10};
 const int SPHERE_DEF_ARC = {12};
 
 // rotate speeds and overall sphere rotate time
 const int SPHERE_ROTATE_TIME = 1000;
-const int SPHERE_SLICE_CYCLE_TIME = 4000;
+const int SPHERE_SLICE_CYCLE_TIME = 8000;
 const float SPHERE_ROTATE_Z_SPEED = 0.03f;
 const float SPHERE_ROTATE_Y_SPEED = 0.12f;
 const float SPHERE_ROTATE_X_SPEED = 0.07f;
@@ -119,6 +132,10 @@ const float SPHERE_ROTATE_X_SPEED = 0.07f;
 #define BLADE_WIDTH		 0.4
 const int BLADE_SPIN_TIME = 500;
 const float TAIL_SPEED_RATIO = 2.;
+
+// lit object and light animation parameters
+const int OBJECT_ROT_TIME = 4000;
+const int LIGHT_ROT_TIME = 3000;
 
 // multiplication factors for input interaction:
 //  (these are known from previous experience)
@@ -217,10 +234,14 @@ const int OUTSIDE_VIEW = 0;
 const int INSIDE_VIEW = 1;
 
 // texture constants
-char *TEXTURE_PATH = "chopper_transparent.bmp";
-// char *TEXTURE_PATH = "chopper.bmp";
-int TEXTURE_WIDTH = 235;
-int TEXTURE_HEIGHT = 190;
+char *TEXTURE_PATH = (char *)"chopper.bmp";
+// char *TEXTURE_PATH = (char *)"chopper_transparent.bmp";
+// char *TEXTURE_PATH = (char *)"brick.bmp";
+// char *TEXTURE_PATH = (char *)"heli_palette.bmp";
+int TEXTURE_WIDTH = 0;
+int TEXTURE_HEIGHT = 0;
+// int TEXTURE_WIDTH = 235;
+// int TEXTURE_HEIGHT = 190;
 const int DISTORT_TEX_TIME = 1000;
 const char* TEX_DISPLAY_OPTIONS[] = {"No Texture", "Tex Replaced", "Tex Modulated"};
 const char* TEX_DISTORT_OPTIONS[] = {"No Animation", "Small Animation", "Whoosh Animation"};
@@ -247,12 +268,15 @@ bool BladesRotateOn;
 bool SphereSliceAnimateOn;
 bool WireframeMode;
 bool DistortTexOn;
+bool NewBladesOn;
 
 GLuint AxesList;     // list to hold the axes
 GLuint BoxList;      // box display list
 GLuint SphereList;   // sphere display list
 GLuint HeliList;     // helicopter display list
-GLuint BladeList;    // helicopter blade display list
+GLuint OldBladeList;    // old helicopter blade display list
+GLuint NewTopBladeList;   // new top helicopter blade display list
+GLuint NewTailBladeList;  // new tail helicopter blade display list
 
 int MainWindow;      // window id for main graphics window
 int Xmouse, Ymouse;  // mouse values
@@ -261,6 +285,7 @@ float Scale;         // scaling factor
 float Xrot, Yrot, Zrot; // whole scene rotation angles in degrees
 float FrontXrot, FrontYrot, FrontZrot; // subscene in front of heli rotation angles in degrees
 float TopBladeRot, TailBladeRot; // heli blade rotation angles in degrees
+float ObjectRot, LightRot; // object and light rotation angles in degrees
 
 float SphereVertSlices;
 float SphereArcSlices;
@@ -280,12 +305,23 @@ struct object Obj1;
 struct object Obj2;
 struct object Obj3;
 
-struct light L1;
-struct light L2;
-struct light L3;
+struct light L1; // red spinny
+struct light L2; // white stationary
+struct light L3; // blue spinny
+struct spotlight L0; // white spotlight
 struct object LObj1;
 struct object LObj2;
 struct object LObj3;
+struct object LObj0;
+
+bool L1_On;
+bool L2_On;
+bool L3_On;
+bool L0_On;
+bool ObjAnimOn;
+bool LightAnimOn;
+
+struct object HeliObject;
 
 
 // function prototypes:
@@ -307,9 +343,11 @@ float ElapsedSeconds();
 void InitGraphics();
 void InitLists();
 void CreateHeliList();
+void DrawHeliFromObj();
 void DrawHeli();
 void CreateBladeList();
 void UpdateSphereList();
+void DrawSphere();
 void InitMenus();
 void Keyboard(unsigned char, int, int);
 void MouseButton(int, int, int, int);
@@ -329,6 +367,8 @@ void DrawOsuSphereLit(float, int, int, struct object Obj);
 void DrawOsuSphereUnlit(float, int, int, struct object Obj);
 void UseObjectMaterial(struct object Obj);
 void EnableLight(int, struct light l);
+void EnableLight(int, struct spotlight l);
+void DrawObjectFromObj(char*, struct object Obj);
 
 void Axes(float);
 unsigned char *BmpToTexture(char *, int *, int *);
@@ -440,6 +480,44 @@ void Animate()
         DistortTexTheta = 2.0 * M_PI * (float) (ms % DISTORT_TEX_TIME) / DISTORT_TEX_TIME;
     }
 
+    // Helpful lambdas
+    float epsilon = 0.001;
+    auto offset_theta = [](double x, double z, double r, double theta, double epsilon) {
+        return theta+atan(z/(x+epsilon))+(x+epsilon>0 ? 0 : M_PI); };
+    auto offset_x = [](double x, double z, double r, double theta, double epsilon, auto offset_theta) {
+        return r*cos(offset_theta(x,z,r,theta,epsilon)); };
+    auto offset_z = [](double x, double z, double r, double theta, double epsilon, auto offset_theta) {
+        return r*sin(offset_theta(x,z,r,theta,epsilon)); };
+
+    // Handle object and light animations
+    float ObjLightAnimRad = 2.;
+    if (ObjAnimOn) {
+        float ObjectRotDiff = 2*M_PI * float(elapsedMS) / OBJECT_ROT_TIME;
+        ObjectRot = mod((ObjectRot + ObjectRotDiff), 2*M_PI);
+        
+        Obj2.X = offset_x(Obj2.X, Obj2.Z, ObjLightAnimRad, ObjectRotDiff, epsilon, offset_theta);
+        Obj2.Z = offset_z(Obj2.X, Obj2.Z, ObjLightAnimRad, ObjectRotDiff, epsilon, offset_theta);
+
+        Obj3.X = offset_x(Obj3.X, Obj3.Z, ObjLightAnimRad, ObjectRotDiff, epsilon, offset_theta);
+        Obj3.Z = offset_z(Obj3.X, Obj3.Z, ObjLightAnimRad, ObjectRotDiff, epsilon, offset_theta);            
+    }
+
+
+    if (LightAnimOn) {
+        float LightRotDiff = 2*M_PI * float(elapsedMS) / LIGHT_ROT_TIME;
+        LightRot = mod((LightRot + LightRotDiff), 2*M_PI);
+
+        L1.X = offset_x(L1.X, L1.Z, ObjLightAnimRad, LightRotDiff, epsilon, offset_theta);
+        L1.Z = offset_z(L1.X, L1.Z, ObjLightAnimRad, LightRotDiff, epsilon, offset_theta);
+        LObj1.X = L1.X;
+        LObj1.Z = L1.Z;
+        
+        L3.X = offset_x(L3.X, L3.Z, ObjLightAnimRad, LightRotDiff, epsilon, offset_theta);
+        L3.Z = offset_z(L3.X, L3.Z, ObjLightAnimRad, LightRotDiff, epsilon, offset_theta);
+        LObj3.X = L3.X;
+        LObj3.Z = L3.Z;
+    }
+    
     // force a call to Display( ) next time it is convenient:
     glutSetWindow(MainWindow);
     glutPostRedisplay();
@@ -490,32 +568,14 @@ void Display()
     // since we are using glScalef( ), be sure normals get unitized:
     glEnable(GL_NORMALIZE);
 
-    // setup and place the lights
-    // glShadeModel(GL_SMOOTH);
-    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, MulArray3(0.3, White));
-    glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
-
-
-    // EnableLight(GL_LIGHT0, L1);
-    // EnableLight(GL_LIGHT1, L2);
-    // EnableLight(GL_LIGHT2, L3);
-
-
-
-
-
     // set the eye position, look-at position, and up-vector dending on view
     if (CurrView == OUTSIDE_VIEW)
         gluLookAt(-0.4, 1.8, -12., 0., 0., 0., 0., 1., 0.);
     else if (CurrView == INSIDE_VIEW)
-        gluLookAt(-0.4, 1.8, -4.4+8.5, -0.4, 1.8, -4.4 - 1., 0., 1., 0.);
+        gluLookAt(-0.4, 2.3, 7.8, -0.4, 0.8, -5.4, 0., 1., 0.);
+        // gluLookAt(-0.4, 1.8, -4.4+8.5+2., -0.4, 1.8, -4.4 - 1., 0., 1., 0.);
     else
         gluLookAt(0., 0., 3., 0., 0., 0., 0., 1., 0.);
-
-
-
-
-
 
     // uniformly rotate and scale the scene, but only if in outside view
     if (CurrView == OUTSIDE_VIEW) {
@@ -528,15 +588,32 @@ void Display()
         glScalef((GLfloat)Scale, (GLfloat)Scale, (GLfloat)Scale);
     }
 
+
+    // setup and place the lights
+    // glShadeModel(GL_SMOOTH);
+    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, MulArray3(0.2, White));
+    glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
+    // glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_FALSE);
+
     // enable and configure the individual lights
-    EnableLight(GL_LIGHT0, L1);
-    EnableLight(GL_LIGHT1, L2);
-    // EnableLight(GL_LIGHT2, L3);
+    if (L1_On) EnableLight(L1.num, L1);
+    else glDisable(L1.num);
+
+    if (L2_On) EnableLight(L2.num, L2);
+    else glDisable(L2.num);
+
+    if (L3_On) EnableLight(L3.num, L3);
+    else glDisable(L3.num);
+
+    if (L0_On) EnableLight(L0.num, L0);
+    else glDisable(L0.num);
+
 
     // draw the light objects
     DrawObjectTransform(LObj1);
     DrawObjectTransform(LObj2);
     DrawObjectTransform(LObj3);
+    DrawObjectTransform(LObj0);
 
     // enable lighting
     glEnable(GL_LIGHTING);
@@ -568,17 +645,26 @@ void Display()
     }
 
     // Draw the main scene objects (helicopter and blades)
-    // glCallList(HeliList);
-    DrawHeli();
+    glShadeModel(GL_SMOOTH);
+    // DrawHeli();
+    glCallList(HeliList);
     DrawHelicopterBlades();
+
+    // struct object frontSphere;
+    // frontSphere.List = SphereList; frontSphere.Y = 0.; frontSphere.Z = 0.;
+    // frontSphere.List = SphereList; frontSphere.Y = 0.; frontSphere.Z = 2.;
+    // frontSphere.List = SphereList; frontSphere.Y = 0.; frontSphere.Z = 0.;
+    // DrawObjectTransform(frontSphere, GL_FLAT);
 
     // Apply front scene transformations to a copy of curr matrix
     glPushMatrix();
         // Apply front-specific translation transformation
-        glTranslatef(0., 0., -2.);
+        // glTranslatef(0., 4., 0.);
+        glTranslatef(-3., -2., 0.);
         // glTranslatef(0., 1., -10.);
         // possibly draw the fixed front axes
-        if (FrontAxesOn != 0) {
+        if (FrontAxesOn != 0)
+        {
             glColor3fv(&Colors[WhichColor][0]);
             glCallList(AxesList);
         }
@@ -587,7 +673,10 @@ void Display()
         glRotatef((GLfloat)FrontYrot, 0., 1., 0.);
         glRotatef((GLfloat)FrontZrot, 0., 0., 1.);
         // Draw front scene objects (sphere)
-        glCallList(SphereList);
+        // glShadeModel(GL_SMOOTH);
+        glShadeModel(GL_FLAT);
+        // glCallList(SphereList);
+        DrawSphere();
         // possibly draw the rotated sphere front axes
         if (SphereAxesOn != 0) {
             glColor3fv(&Colors[WhichColor][0]);
@@ -599,15 +688,16 @@ void Display()
     // Draw object1, object2, and object3
     DrawObjectTransform(Obj1, GL_FLAT);
     DrawObjectTransform(Obj2, GL_SMOOTH);
-    DrawObjectTransform(Obj3, GL_FLAT);
+    DrawObjectTransform(Obj3, GL_SMOOTH);
 
     // Disable lighting
     glDisable(GL_LIGHTING);
 
-    // draw the light objects
-    DrawObjectTransform(LObj1);
-    DrawObjectTransform(LObj2);
-    DrawObjectTransform(LObj3);
+    // // draw the light objects
+    // DrawObjectTransform(LObj1);
+    // DrawObjectTransform(LObj2);
+    // DrawObjectTransform(LObj3);
+
 
 
 
@@ -630,11 +720,12 @@ void Display()
     gluOrtho2D(0., 100., 0., 100.);
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
+    glScalef(.4, .4, .4);
     char sliceStr[50];
     if (DrawHelpText) {
         glColor3f(1., 1., 1.);
         sprintf(sliceStr,
-                "Controls = Space, t, T, F, R, Q, E, V, /, ?, ., [shift]wasd",
+                "Ctrls: Space, t, T, B, F, R, Q, E, V, /, ?, ., 0-3, [shift]wasd",
                 // "Vertical=%i; Arc=%i; Controls=Space,R,Q,E,.,v,[shift]wasd",
                 (int)SphereVertSlices, (int)SphereArcSlices);
         DoRasterString(5., 5., 0., sliceStr);
@@ -642,9 +733,9 @@ void Display()
     if (DrawSlicesText) {
         glColor3f(1., 1., 1.);
         sprintf(sliceStr, "Vertical = %i", (int)SphereVertSlices);
-        DoRasterString(5., 10., 0., sliceStr);
+        DoRasterString(5., 15., 0., sliceStr);
         sprintf(sliceStr, "Arc = %i", (int)SphereArcSlices);
-        DoRasterString(30., 10., 0., sliceStr);
+        DoRasterString(60., 15., 0., sliceStr);
     }
 
     // swap the double-buffered framebuffers:
@@ -696,37 +787,106 @@ void DrawObjectTransform(struct object Obj)
 
 void DrawHelicopterBlades()
 {
-    // Draw the top blade
-    glPushMatrix();
-        // Apply translation up to top of heli
-        glTranslatef(0., 2.9, -1.5+8.5);
-        // glTranslatef(0., 2.9, -1.5);
-        // Apply scaling up to radius 5 (from 1)
-        glScalef(5., 5., 5.);
-        // Apply animation rotation
-        glRotatef(TopBladeRot, 0., 1., 0.);
-        // Apply rotation abt X
-        glRotatef(90., 1., 0., 0.);
-        // Draw the blade
-        glCallList(BladeList);
-    // Pop top blade transormations
-    glPopMatrix();
+    // Depending on old or new blades
+    if (NewBladesOn) {
+        // Draw the top blade
+        glPushMatrix();
+            // Transform (low poly)
+            glTranslatef(0., 0.5, 6.+2.);
+            // Rotate for correct directions
+            glRotatef(-90., 0., 1., 0.);
+            // Move up to correct spot
+            glTranslatef(0.004 * 248.341, 0.004 * 624.294, 0);
+            // glTranslatef(0.004 * 249.341, 0.004 * 624.294, 0.00425 * 16.8352);
+            // Scale to a good size
+            glScalef(0.004,0.004,0.00425);
+            // Apply animation rotation
+            glRotatef(TopBladeRot, 0., 1., 0.);
 
-    // Draw the tail blade
-    glPushMatrix();
-        // Apply translation up to top of heli
-        glTranslatef(0.5, 2.5, 9.+8.5);
-        // glTranslatef(0.5, 2.5, 9.);
-        // Apply scaling up to radius 3 (from 1)
-        glScalef(3., 3., 3.);
-        // Apply animation rotation
-        glRotatef(TailBladeRot, 1., 0., 0.);
-        // Apply rotation abt Y
-        glRotatef(90., 0., 1., 0.);
-        // Draw the blade
-        glCallList(BladeList);
-    // Pop top blade transormations
-    glPopMatrix();
+            // // Apply translation up to top of heli
+            // glTranslatef(0., 2.9, -1.5+8.5+2.);
+            // // glTranslatef(0., 2.9, -1.5);
+            // // Apply scaling up to radius 5 (from 1)
+            // glScalef(5., 5., 5.);
+            // // Apply animation rotation
+            // glRotatef(TopBladeRot, 0., 1., 0.);
+            // // Apply rotation abt X
+            // glRotatef(90., 1., 0., 0.);
+            // Draw the blade
+            glCallList(NewTopBladeList);
+        // Pop top blade transormations
+        glPopMatrix();
+
+        // Draw the tail blade
+        glPushMatrix();
+            // Transform (low poly)
+            glTranslatef(0., 0.5, 6.+2.);
+            // // Move up to correct spot
+            glTranslatef(0., 0.004 * 509.54, 0.00425 * 2700.57);
+            // glTranslatef(0.004 * 2700.57, 0.004 * 509.54, 0);
+            // glTranslatef(0.004 * 2700.57, 0.004 * 509.54, 0.00425 * 13.0899);
+            // Scale to a good size
+            glScalef(0.004,0.004,0.00425);
+            // Apply animation rotation
+            glRotatef(TailBladeRot, 1., 0., 0.);
+            // Rotate for correct directions
+            glRotatef(-90., 0., 0., 1.);
+
+
+            // // Transform (low poly)
+            // glTranslatef(0., 0.5, 6.+2.);
+            // glScalef(0.004,0.004,0.00425);
+            // glRotatef(-90., 0., 1., 0.);
+            // // Apply animation rotation
+            // glRotatef(TailBladeRot, 1., 0., 0.);
+
+            // // Apply translation up to top of heli
+            // glTranslatef(0.5, 2.5, 9.+8.5+2.);
+            // // glTranslatef(0.5, 2.5, 9.);
+            // // Apply scaling up to radius 3 (from 1)
+            // glScalef(3., 3., 3.);
+            // // Apply animation rotation
+            // glRotatef(TailBladeRot, 1., 0., 0.);
+            // // Apply rotation abt Y
+            // glRotatef(90., 0., 1., 0.);
+            // Draw the blade
+            glCallList(NewTailBladeList);
+        // Pop top blade transormations
+        glPopMatrix();
+    }
+    else {
+        // Draw the top blade
+        glPushMatrix();
+            // Apply translation up to top of heli
+            glTranslatef(0., 2.9, -1.5+8.5+2.);
+            // glTranslatef(0., 2.9, -1.5);
+            // Apply scaling up to radius 5 (from 1)
+            glScalef(5., 5., 5.);
+            // Apply animation rotation
+            glRotatef(TopBladeRot, 0., 1., 0.);
+            // Apply rotation abt X
+            glRotatef(90., 1., 0., 0.);
+            // Draw the blade
+            glCallList(OldBladeList);
+        // Pop top blade transormations
+        glPopMatrix();
+
+        // Draw the tail blade
+        glPushMatrix();
+            // Apply translation up to top of heli
+            glTranslatef(0.5, 2.5, 9.+8.5+2.);
+            // glTranslatef(0.5, 2.5, 9.);
+            // Apply scaling up to radius 3 (from 1)
+            glScalef(3., 3., 3.);
+            // Apply animation rotation
+            glRotatef(TailBladeRot, 1., 0., 0.);
+            // Apply rotation abt Y
+            glRotatef(90., 0., 1., 0.);
+            // Draw the blade
+            glCallList(OldBladeList);
+        // Pop top blade transormations
+        glPopMatrix();
+    }
 }
 
 void DoTexMenu(int id)
@@ -859,6 +1019,7 @@ void DoMainMenu(int id)
         glutSetWindow(MainWindow);
         glFinish();
         glutDestroyWindow(MainWindow);
+        delete[] Texture;
         exit(0);
         break;
 
@@ -1124,11 +1285,11 @@ void InitGraphics()
     // glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE); // or GL_MODULATE
 
     // Rotate texture coord space
-    glMatrixMode(GL_TEXTURE);
-    glScalef(0.1, 0.15, 1.);
-    glTranslatef(4.5, 3.1, 0.);
-    glRotatef(15., 0., 0., 1.);
-    glMatrixMode(GL_MODELVIEW);
+    // glMatrixMode(GL_TEXTURE);
+    // glScalef(0.1, 0.15, 1.);
+    // glTranslatef(4.5, 3.1, 0.);
+    // glRotatef(15., 0., 0., 1.);
+    // glMatrixMode(GL_MODELVIEW);
 
     // Backup
     // // glRotatef(10., 0., 0., 1.);
@@ -1160,7 +1321,7 @@ void InitLists()
     // Create the helicopter list
     CreateHeliList();
 
-    // Create the blade list
+    // Create the blade lists
     CreateBladeList();
 
     // Create the axes lists
@@ -1178,21 +1339,21 @@ void InitLists()
     glutSetWindow(MainWindow);
     Obj1.List = glGenLists(1);
     glNewList(Obj1.List, GL_COMPILE);
-    DrawOsuSphereLit(1.f, 100, 100, Obj1);
+    DrawOsuSphereLit(1.f, 8, 8, Obj1);
     glEndList();
 
     // Create the object2 list
     glutSetWindow(MainWindow);
     Obj2.List = glGenLists(1);
     glNewList(Obj2.List, GL_COMPILE);
-    DrawOsuSphereLit(1.f, 20, 20, Obj2);
+    DrawOsuSphereLit(1.f, 1000, 1000, Obj2);
     glEndList();
 
     // Create the object3 list
     glutSetWindow(MainWindow);
     Obj3.List = glGenLists(1);
     glNewList(Obj3.List, GL_COMPILE);
-    DrawOsuSphereLit(1.f, 8, 8, Obj3);
+    DrawOsuSphereLit(1.f, 1000, 1000, Obj3);
     glEndList();
 
     // Create the lightobject1 list
@@ -1216,6 +1377,13 @@ void InitLists()
     DrawOsuSphereUnlit(0.1, 10, 10, LObj3);
     glEndList();
 
+    // Create the lightobject3 list
+    glutSetWindow(MainWindow);
+    LObj0.List = glGenLists(1);
+    glNewList(LObj0.List, GL_COMPILE);
+    DrawOsuSphereUnlit(0.1, 10, 10, LObj0);
+    glEndList();
+
 }
 
 void CreateHeliList() {
@@ -1226,11 +1394,57 @@ void CreateHeliList() {
     HeliList = glGenLists(1);
     glNewList(HeliList, GL_COMPILE);
 
-    // Draw heli
-    DrawHeli();
+    // Draw heli from OBJ
+    DrawHeliFromObj();
+
+    // // Draw heli
+    // DrawHeli();
 
     // End list
     glEndList();
+}
+
+void DrawHeliFromObj() {
+    // Push current matrix
+    glPushMatrix();
+
+    // Low Poly
+    glTranslatef(0., 0.5, 6.+2.);
+    glScalef(0.004,0.004,0.00425);
+    glRotatef(-90., 0., 1., 0.);
+
+    // Original
+    // glTranslatef(0., -1., 9.+2.);
+    // // glTranslatef(0., -1., 0.5);
+    // glRotatef(97., 0., 1., 0.);
+    // glRotatef(-15., 0., 0., 1.);
+
+    // Use object material
+    UseObjectMaterial(HeliObject);
+
+    // Apply Tex0 (or not) with different settings as requested
+    switch (TexSel) {
+        case 1: // Replace
+            glEnable(GL_TEXTURE_2D);
+            glBindTexture(GL_TEXTURE_2D, Tex0);
+            glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE); // or GL_MODULATE
+            break;
+        case 2: // Modulate
+            glEnable(GL_TEXTURE_2D);
+            glBindTexture(GL_TEXTURE_2D, Tex0);
+            glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE); // or GL_REPLACE
+            break;
+        // Do nothing in case 0 of no texture
+    }
+
+    // Load heli Obj file
+    // char *file = "heli.obj";
+    char *file = (char *)"heli_customized.obj";
+    LoadObjFileFromBlender(file);
+
+    // Finish up
+    glDisable(GL_TEXTURE_2D);
+    glPopMatrix();
 }
 
 void DrawHeli() {
@@ -1243,10 +1457,13 @@ void DrawHeli() {
 
     // Push current matrix
     glPushMatrix();
-    glTranslatef(0., -1., 9.);
+    glTranslatef(0., -1., 9.+2.);
     // glTranslatef(0., -1., 0.5);
     glRotatef(97., 0., 1., 0.);
     glRotatef(-15., 0., 0., 1.);
+
+    // Use object material
+    UseObjectMaterial(HeliObject);
 
     // Set min and max on coords for texture mapping
     float min_z = 0, max_z = 0;
@@ -1277,21 +1494,58 @@ void DrawHeli() {
         p1 = &Helipoints[tp->p1];
         p2 = &Helipoints[tp->p2];
 
-        // fake "lighting" from above:
-        p01[0] = p1->x - p0->x;
-        p01[1] = p1->y - p0->y;
-        p01[2] = p1->z - p0->z;
-        p02[0] = p2->x - p0->x;
-        p02[1] = p2->y - p0->y;
-        p02[2] = p2->z - p0->z;
-        Cross(p01, p02, n);
-        Unit(n, n);
-        n[1] = fabs(n[1]);
-        n[1] += .25;
-        if (n[1] > 1.)
-            n[1] = 1.;
-        glColor3f(0.75, 0.75 + (n[1] / 4.), 1.);
+        // // fake "lighting" from above:
+        // p01[0] = p1->x - p0->x;
+        // p01[1] = p1->y - p0->y;
+        // p01[2] = p1->z - p0->z;
+        // p02[0] = p2->x - p0->x;
+        // p02[1] = p2->y - p0->y;
+        // p02[2] = p2->z - p0->z;
+        // Cross(p01, p02, n);
+        // Unit(n, n);
+        // n[1] = fabs(n[1]);
+        // n[1] += .25;
+        // if (n[1] > 1.)
+        //     n[1] = 1.;
+        // glColor3f(0.75, 0.75 + (n[1] / 4.), 1.);
         // glColor3f(0., n[1], 0.5);
+
+
+        glColor3f(0.75, 0.75, 0.75);
+
+        // calculate normal
+        auto reverse = [](float v[3]) { v[0]=-v[0]; v[1]=-v[1]; v[2]=-v[2]; };
+        float n[3], p4[3], p5[3];
+        struct hPoint *p6;
+        p4[0] = p1->x-p0->x, p4[1] = p1->y-p0->y, p4[2] = p1->z-p0->z;
+        p5[0] = p2->x-p0->x, p5[2] = p2->y-p0->y, p5[3] = p2->z-p0->z;
+        Cross(p4, p5, n);
+        // if (p0->z < p1->z) { reverse(n); }
+
+        // if (p1->z < p0->z) { p6 = p0; p0 = p1; p1 = p6; }
+        // p6 = p0; p0 = p1; p1 = p6;
+
+        // Get whether the x y and z signs of p0 and n match
+        p4[0] = p0->x * n[0], p4[1] = p0->y * n[1], p4[2] = p0->z * n[2];
+        if (p4[0] < 0 || p4[1] < 0 || p4[2] < 0) {
+            // If they don't match, swap p0 and p1 to switch the normal
+            p6 = p0; p0 = p1; p1 = p6;
+            reverse(n);
+        } else {
+            p4[0] = p1->x * n[0], p4[1] = p1->y * n[1], p4[2] = p1->z * n[2];
+            if (p4[0] < 0 || p4[1] < 0 || p4[2] < 0) {
+                // If they don't match, swap p0 and p1 to switch the normal
+                p6 = p0; p0 = p1; p1 = p6;
+                reverse(n);
+            } else {
+                p4[0] = p2->x * n[0], p4[1] = p2->y * n[1], p4[2] = p2->z * n[2];
+                if (p4[0] < 0 || p4[1] < 0 || p4[2] < 0) {
+                    // If they don't match, swap p0 and p1 to switch the normal
+                    p6 = p0; p0 = p1; p1 = p6;
+                    reverse(n);
+                }
+            }
+        }
 
         // find texture coords
         float p0_s = 1 - (p0->x - min_x) / (max_x - min_x);
@@ -1322,16 +1576,20 @@ void DrawHeli() {
             // Do nothing in case 0 of no animation
         }
 
+
         // write texture coords and vertices
-        // glTexCoord2f(p0_s, p0_t);
+        glNormal3fv(n);
         glTexCoord2f(s_off+sine*p0_s, t_off+cosine*p0_t);
         glVertex3f(p0->x, p0->y, p0->z);
+
+        glNormal3fv(n);
         glTexCoord2f(s_off+sine*p1_s, t_off+cosine*p1_t);
-        // glTexCoord2f(p1_s, p1_t);
         glVertex3f(p1->x, p1->y, p1->z);
+
+        glNormal3fv(n);
         glTexCoord2f(s_off+sine*p2_s, t_off+cosine*p2_t);
-        // glTexCoord2f(p2_s, p2_t);
         glVertex3f(p2->x, p2->y, p2->z);
+
     }
     glEnd();
 
@@ -1353,10 +1611,11 @@ void DrawHeli() {
 void CreateBladeList() {
     // Set to the main window
     glutSetWindow(MainWindow);
+    char *wow;
 
-    // Start blade list
-    BladeList = glGenLists(1);
-    glNewList(BladeList, GL_COMPILE);
+    // Start old blade list
+    OldBladeList = glGenLists(1);
+    glNewList(OldBladeList, GL_COMPILE);
 
     // draw the helicopter blade with radius BLADE_RADIUS and
     //	width BLADE_WIDTH centered at (0.,0.,0.) in the XY plane
@@ -1373,9 +1632,58 @@ void CreateBladeList() {
     glEnd();
 
     glEndList();
+
+    // Create the new top and tail blades from Obj files
+    NewTopBladeList = glGenLists(1);
+    glNewList(NewTopBladeList, GL_COMPILE);
+        // // Transform (low poly)
+        // glTranslatef(0., 0.5, 6.+2.);
+        // glScalef(0.004,0.004,0.00425);
+        // glRotatef(-90., 0., 1., 0.);
+        // Draw
+        wow = (char *)"heli_top_blade.obj";
+        DrawObjectFromObj(wow, HeliObject);
+    glEndList();
+
+    NewTailBladeList = glGenLists(1);
+    glNewList(NewTailBladeList, GL_COMPILE);
+        // // Transform (low poly)
+        // glTranslatef(0., 0.5, 6.+2.);
+        // glScalef(0.004,0.004,0.00425);
+        // glRotatef(-90., 0., 1., 0.);
+        // Draw
+    wow = (char *)"heli_tail_blade.obj";
+    DrawObjectFromObj(wow, HeliObject);
+    glEndList();
+}
+
+void DrawObjectFromObj(char *obj_path, struct object material) {
+    // Push current matrix
+    glPushMatrix();
+
+    // Use object material
+    UseObjectMaterial(material);
+
+    // Load Obj file
+    LoadObjFileFromBlender(obj_path);
+
+    // Finish up
+    glPopMatrix();
 }
 
 void UpdateSphereList() {
+    // // Create the sphere list
+    // SphereList = glGenLists(1);
+    // glNewList(SphereList, GL_COMPILE);
+
+    // // Draw the sphere
+    // DrawSphere();
+
+    // // End sphere list
+    // glEndList();
+}
+
+void DrawSphere() {
     // Set to the main window
     glutSetWindow(MainWindow);
 
@@ -1391,92 +1699,103 @@ void UpdateSphereList() {
     bool first = true;
     vec3 curr;
 
-    // Create the sphere list
-    SphereList = glGenLists(1);
-    glNewList(SphereList, GL_COMPILE);
-
     if (WireframeMode) {
         // Enable wireframe
         glPolygonMode(GL_FRONT, GL_LINE);
         glPolygonMode(GL_BACK, GL_LINE);
     }
 
+    // Use object1 properties (will replace color per-vertex)
+    UseObjectMaterial(Obj1);
+
     // Push matrix to apply rotation 
     glPushMatrix();
+        // Start compiling geometry
+        glBegin(GL_TRIANGLE_STRIP);
 
-    // Start compiling geometry
-    glBegin(GL_TRIANGLE_STRIP);
+        // For each pair of vertical vertices (slice)
+        for (int i = 0; i <= int(SphereVertSlices); i++) {
+            // Make new curr
+            curr = {0, 0, 0};
 
-    // // Use blue color for now
-    // glColor3f(0., 0., 1.);
+            // Get slice radius and y for this slice
+            float v_theta = (float(i) / int(SphereVertSlices)) * M_PI;
+            float v_rad = SPHERE_RADIUS * sin(v_theta);
+            curr.y = SPHERE_RADIUS * cos(v_theta);
 
-    // For each pair of vertical vertices (slice)
-    for (int i = 0; i <= int(SphereVertSlices); i++) {
-        // Make new curr
-        curr = {0, 0, 0};
+            // For each arc slices (and then the first again)
+            for (int j = 0; j <= int(SphereArcSlices); j++) {
+                // Get x and y for this arc
+                float slice_theta = -1 * (float(j) / int(SphereArcSlices)) * 2*M_PI + M_PI/2;
+                curr.x = v_rad * cos(slice_theta);
+                curr.z = v_rad * sin(slice_theta);
 
-        // Get slice radius and y for this slice
-        float v_theta = (float(i) / int(SphereVertSlices)) * M_PI;
-        float v_rad = SPHERE_RADIUS * sin(v_theta);
-        curr.y = SPHERE_RADIUS * cos(v_theta);
+                // If not first slice, add this vert and prev_slice vert to strip
+                if (!first) {
+                    // // Change blue hue by arc progression, red by vertical
+                    // glColor3f(float(i) / int(SphereVertSlices),
+                    //         0.f,
+                    //         float(j) / int(SphereArcSlices));
 
-        // For each arc slices (and then the first again)
-        for (int j = 0; j <= int(SphereArcSlices); j++) {
-            // Get x and y for this arc
-            float slice_theta = -1 * (float(j) / int(SphereArcSlices)) * 2*M_PI + M_PI/2;
-            curr.x = v_rad * cos(slice_theta);
-            curr.z = v_rad * sin(slice_theta);
+                    // // Red and green gradiants
+                    // glColor3f(float(i) / int(SphereVertSlices),
+                    //           float(j) / int(SphereArcSlices),
+                    //           0.f);
 
-            // If not first slice, add this vert and prev_slice vert to strip
-            if (!first) {
-                // Change blue hue by arc progression, red by vertical
-                glColor3f(float(i) / int(SphereVertSlices),
-                          0.f,
-                          float(j) / int(SphereArcSlices));
+                    // Set material properties for these colors
+                    float rgb[4] = {float(i)/int(SphereVertSlices), 0.f, float(j)/int(SphereArcSlices), 1.f};
+                    glMaterialfv(GL_FRONT, GL_AMBIENT, rgb);
+                    glMaterialfv(GL_FRONT, GL_DIFFUSE, rgb);
 
-                // // Red and green gradiants
-                // glColor3f(float(i) / int(SphereVertSlices),
-                //           float(j) / int(SphereArcSlices),
-                //           0.f);
+                    // Set normals
+                    float prev_lat = M_PI/2. - M_PI * (float)(i-1) / (float)(SphereVertSlices-1);
+                    float lat =      M_PI/2. - M_PI * (float)i     / (float)(SphereVertSlices-1);
+                    // float prev_lat = -M_PI/2. + M_PI * (float)(i-1) / (float)(SphereVertSlices-1);
+                    // float lat =      -M_PI/2. + M_PI * (float)i     / (float)(SphereVertSlices-1);
+                    float lng = -M_PI + M_PI/2. + 2*M_PI * (float)j / (float)(SphereArcSlices-1);
+                    // float lng = -M_PI + 2*M_PI * (float)j / (float)(SphereArcSlices-1);
+                    float prev_x = 1*cosf( prev_lat ) * cosf( lng );
+                    float prev_y = 1*sinf( lat );
+                    float prev_z = 1*-cosf( prev_lat ) * sinf( lng );
+                    float x = 1*cosf( lat ) * cosf( lng );
+                    float y = 1*sinf( lat );
+                    float z = 1*-cosf( lat ) * sinf( lng );
 
-                // Always do prev layer as first vertex in triangle chain
-                glVertex3f(prev_layer[j].x,
-                           prev_layer[j].y,
-                           prev_layer[j].z);
-                
-                // Then do the curr layer
-                glVertex3f(curr.x, curr.y, curr.z);
-                
-                // Then replace this element in prev_layer with the curr value
-                prev_layer[j] = curr;
+                    // Always do prev layer as first vertex in triangle chain
+                    glNormal3f(prev_x, prev_y, prev_z);
+                    glVertex3f(prev_layer[j].x,
+                            prev_layer[j].y,
+                            prev_layer[j].z);
+                    
+                    // Then do the curr layer
+                    glNormal3f(x, y, z);
+                    glVertex3f(curr.x, curr.y, curr.z);
+                    
+                    // Then replace this element in prev_layer with the curr value
+                    prev_layer[j] = curr;
+                }
+                // Otherwise this is the first slice, push curr into prev_layer
+                else {
+                    prev_layer.push_back(curr);
+                }
             }
-            // Otherwise this is the first slice, push curr into prev_layer
-            else {
-                prev_layer.push_back(curr);
+
+            // After first slice disable the first flag
+            if (first) {
+                    // Set first to false
+                    first = false;
             }
         }
-
-        // After first slice disable the first flag
-        if (first) {
-                // Set first to false
-                first = false;
-        }
-    }
-
+        // End sphere geometry
+        glEnd();
     // Pop matrix after creating geometry
     glPopMatrix();
-
-    // End sphere geometry
-    glEnd();
 
     if (WireframeMode) {
         // Disable wireframe
         glPolygonMode(GL_FRONT, GL_FILL);
         glPolygonMode(GL_BACK, GL_FILL);
     }
-
-    // End sphere list
-    glEndList();
 }
 
 
@@ -1567,6 +1886,10 @@ void Keyboard(unsigned char c, int x, int y)
 
     case 'f':
         BladesRotateOn = !BladesRotateOn;
+        ObjAnimOn = !ObjAnimOn;
+        LightAnimOn = !LightAnimOn;
+        SphereRotateOn = !SphereRotateOn;
+        SphereSliceAnimateOn = !SphereSliceAnimateOn;
         break;
 
     case 'e':
@@ -1602,6 +1925,26 @@ void Keyboard(unsigned char c, int x, int y)
         if (TexDistortSel >= sizeof(TEX_DISTORT_OPTIONS) / sizeof(char*))
             TexDistortSel = 0;
         break;
+
+    case '1':
+        L1_On = !L1_On;
+        break;
+    case '2':
+        L2_On = !L2_On;
+        break;
+    case '3':
+        L3_On = !L3_On;
+        break;
+    case '4':
+    case '0':
+        L0_On = !L0_On;
+        break;
+
+    case 'b':
+    case 'B':
+        NewBladesOn = !NewBladesOn;
+        break;
+
 
     case 'q':
     case 'Q':
@@ -1770,35 +2113,58 @@ void Reset(bool redisplay)
     TexDistortSel = 0;
     TexSel = 2;
     DistortTexTheta = 0.;
+    NewBladesOn = true;
+    L1_On = true;
+    L2_On = true;
+    L3_On = true;
+    L0_On = true;
+    ObjAnimOn = true;
+    LightAnimOn = true;
 
     // reset objects  
     Obj1.X = 0., Obj1.Y = 2., Obj1.Z = 0.;
     Obj1.Xr = 0., Obj1.Yr = 0., Obj1.Zr = 0.;
     Obj1.R = 1., Obj1.G = 1., Obj1.B = 0.;
+    Obj1.ambient = 1., Obj1.diffuse = 1., Obj1.specular = 0.4, Obj1.shiny = 0.0;
     Obj1.Scale = 1.;
 
-    Obj2.X = -2., Obj2.Y = 1., Obj2.Z = 0.;
+    Obj2.X = -2., Obj2.Y = 0.5, Obj2.Z = 0.;
     Obj2.Xr = 0., Obj2.Yr = 0., Obj2.Zr = 0.;
     Obj2.R = 0., Obj2.G = 1., Obj2.B = 0.;
+    Obj2.ambient = 1., Obj2.diffuse = 1., Obj2.specular = 0.4, Obj2.shiny = 1.0;
     Obj2.Scale = 1.;
 
-    Obj3.X = 2., Obj3.Y = 1., Obj3.Z = 0.;
+    Obj3.X = 2., Obj3.Y = 0.5, Obj3.Z = 0.;
     Obj3.Xr = 0., Obj3.Yr = 0., Obj3.Zr = 0.;
     Obj3.R = 0., Obj3.G = 0., Obj3.B = 1.;
+    Obj3.ambient = 1., Obj3.diffuse = 1., Obj3.specular = 0.4, Obj3.shiny = 10.0;
     Obj3.Scale = 1.;
 
     // reset lights
-    L1.X = 0., L1.Y = 4., L1.Z = 0.;
-    L1.R = 1., L1.G = 0., L1.B = 0.;
+    L1.X = -2., L1.Y = 2.5, L1.Z = 0.;
+    L1.R = 1., L1.G = 0.25, L1.B = 0.;
     L1.ambient = 0., L1.diffuse = 1, L1.specular = 1;
+    L1.num = GL_LIGHT1;
 
-    L2.X = 0., L2.Y = 0., L2.Z = 0.;
-    L2.R = 0., L2.G = 0., L2.B = 1.;
-    L2.ambient = 0., L2.diffuse = 1., L2.specular = 1.;
+    L2.X = 0., L2.Y = -0.5, L2.Z = 0.;
+    L2.R = .7, L2.G = .7, L2.B = .7;
+    L2.ambient = 0., L2.diffuse = .7, L2.specular = .7;
+    L2.num = GL_LIGHT2;
 
-    L3.X = 0., L3.Y = 5., L3.Z = 0.;
-    L3.R = 1., L3.G = 1., L3.B = 1.;
+    L3.X = 2., L3.Y = 2.5, L3.Z = 0.;
+    L3.R = 0., L3.G = 0.25, L3.B = 1.;
     L3.ambient = 0., L3.diffuse = 1., L3.specular = 1.;
+    L3.num = GL_LIGHT3;
+
+    // L0.X = 2., L0.Y = 5., L0.Z = 2.;
+    // L0.X = 0.5, L0.Y = 6., L0.Z = -2.;
+    L0.X = 2., L0.Y = 3., L0.Z = -3.;
+    L0.R = 1., L0.G = 1., L0.B = 1.;
+    L0.ambient = 0., L0.diffuse = 1., L0.specular = 1.;
+    L0.DX = -L0.X, L0.DY = -L0.Y, L0.DZ = -L0.Z;
+    // L0.exp = 2., L0.spread = 12.;
+    L0.exp = 10., L0.spread = 20.;
+    L0.num = GL_LIGHT0;
 
     // reset light objects
     LObj1.X = L1.X, LObj1.Y = L1.Y, LObj1.Z = L1.Z;
@@ -1815,7 +2181,19 @@ void Reset(bool redisplay)
     LObj3.Xr = 0., LObj3.Yr = 0., LObj3.Zr = 0.;
     LObj3.R = L3.R, LObj3.G = L3.G, LObj3.B = L3.B;
     LObj3.Scale = 1.0;
+
+    LObj0.X = L0.X, LObj0.Y = L0.Y, LObj0.Z = L0.Z;
+    LObj0.Xr = 0., LObj0.Yr = 0., LObj0.Zr = 0.;
+    LObj0.R = L0.R, LObj0.G = L0.G, LObj0.B = L0.B;
+    LObj0.Scale = 1.0;
+
+    // reset heli object color
+    HeliObject.R = 1.0, HeliObject.G = 1.0, HeliObject.B = 1.0;
     
+    // reset object and light animation angle
+    ObjectRot = 0;
+    LightRot = 0;
+
     UpdateSphereList();
 
     // redisplay if requested
@@ -1968,21 +2346,43 @@ void Axes(float length)
 
 void UseObjectMaterial(struct object Obj)
 {
-    // back-facing attributes
+    // establish colors
+    float frontRGB[4] = {Obj.R, Obj.G, Obj.B, 1.};
     float backRGB[4] = {Obj.BR, Obj.BG, Obj.BB, 1.};
+
+    // back-facing attributes
+    // glMaterialfv(GL_BACK, GL_EMISSION, Array3(0., 0., 0.));
+    // glMaterialfv(GL_BACK, GL_AMBIENT, MulArray3(0., White));
+    // glMaterialfv(GL_BACK, GL_DIFFUSE, MulArray3(0., White));
+    // glMaterialfv(GL_BACK, GL_SPECULAR, MulArray3(0., White));
+    // glMaterialf(GL_BACK, GL_SHININESS, 0.5f);
+
+    // glMaterialfv(GL_BACK, GL_EMISSION, Array3(0., 0., 0.));
+    // glMaterialfv(GL_FRONT, GL_SPECULAR, MulArray3(0.4, White));
+    // glMaterialfv(GL_BACK, GL_AMBIENT, frontRGB);
+    // glMaterialfv(GL_BACK, GL_DIFFUSE, frontRGB);
+    // glMaterialf(GL_BACK, GL_SHININESS, 0.5);
+
     glMaterialfv(GL_BACK, GL_EMISSION, Array3(0., 0., 0.));
     glMaterialfv(GL_BACK, GL_SPECULAR, Array3(0., 0., 0.));
-    glMaterialfv(GL_BACK, GL_AMBIENT, MulArray3(0.3, backRGB));
-    glMaterialfv(GL_BACK, GL_DIFFUSE, MulArray3(1., backRGB));
-    glMaterialf(GL_BACK, GL_SHININESS, 1.f);
+    glMaterialfv(GL_BACK, GL_AMBIENT, MulArray3(Obj.ambient, White));
+    glMaterialfv(GL_BACK, GL_DIFFUSE, MulArray3(Obj.diffuse, backRGB));
+    glMaterialfv(GL_BACK, GL_SPECULAR, MulArray3(Obj.specular, backRGB));
+    glMaterialf(GL_BACK, GL_SHININESS, 0.5*Obj.shiny);
+    // glMaterialfv(GL_BACK, GL_AMBIENT, MulArray3(0., backRGB));
+    // glMaterialfv(GL_BACK, GL_DIFFUSE, MulArray3(0., backRGB));
 
     // front-facing attributes
-    float frontRGB[4] = {Obj.R, Obj.G, Obj.B, 1.};
     glMaterialfv(GL_FRONT, GL_EMISSION, Array3(0., 0., 0.));
-    glMaterialfv(GL_FRONT, GL_SPECULAR, MulArray3(0.8, White));
-    glMaterialfv(GL_FRONT, GL_AMBIENT, frontRGB);
-    glMaterialfv(GL_FRONT, GL_DIFFUSE, frontRGB);
-    glMaterialf(GL_FRONT, GL_SHININESS, 3.f);
+    glMaterialfv(GL_FRONT, GL_AMBIENT, MulArray3(Obj.ambient, frontRGB));
+    glMaterialfv(GL_FRONT, GL_DIFFUSE, MulArray3(Obj.diffuse, frontRGB));
+    glMaterialfv(GL_FRONT, GL_SPECULAR, MulArray3(Obj.specular, White));
+    glMaterialf(GL_FRONT, GL_SHININESS, Obj.shiny);
+    // glMaterialfv(GL_FRONT, GL_EMISSION, Array3(0., 0., 0.));
+    // glMaterialfv(GL_FRONT, GL_SPECULAR, MulArray3(0.4, White));
+    // glMaterialfv(GL_FRONT, GL_AMBIENT, frontRGB);
+    // glMaterialfv(GL_FRONT, GL_DIFFUSE, frontRGB);
+    // glMaterialf(GL_FRONT, GL_SHININESS, 1.f);
 }
 
 void EnableLight(int lightNum, struct light l)
@@ -2000,6 +2400,17 @@ void EnableLight(int lightNum, struct light l)
 
     float pos[4] = {l.X, l.Y, l.Z, 1.};
     glLightfv(lightNum, GL_POSITION, pos);
+}
+
+void EnableLight(int lightNum, struct spotlight l)
+{
+    // Enable all the general light stuff
+    EnableLight(lightNum, (struct light) l);
+
+    // Specify spotlight-specific stuff
+    glLightfv(lightNum, GL_SPOT_DIRECTION, Array3(l.DX, l.DY, l.DZ));
+    glLightf(lightNum, GL_SPOT_EXPONENT, l.exp);
+    glLightf(lightNum, GL_SPOT_CUTOFF, l.spread);
 }
 
 void DrawOsuSphereUnlit(float radius, int slices, int stacks, struct object Obj)
