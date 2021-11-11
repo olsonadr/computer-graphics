@@ -1,3 +1,0 @@
-
-0:16(1): error: interpolation qualifier `flat' can only be applied to shader inputs or outputs.
-

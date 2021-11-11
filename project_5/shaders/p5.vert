@@ -60,38 +60,38 @@ void main() {
     float distToSp4 = ss2 + tt2;
     float distToOrigin = dot(vert,vert);
 
-    float trig_cos_off = cos(2*PI*uVertTime+PI);
-    float trig_sin_off = sin(2*PI*uVertTime);
+    float cos_o = cos(2*PI*uVertTime+PI);
+    float sin_o = sin(2*PI*uVertTime);
 
     // Surface out animation
     if (uVertAnimSel == 0) {
         if (distToSp1 < sq_spike_rad)
-            vert *= (distToOrigin)+((trig_cos_off+1)*r/2)*(1-distToSp1/sq_spike_rad); // animated from surface out
+            vert *= (distToOrigin)+((cos_o+1)*r/2)*(1-distToSp1/sq_spike_rad); // animated from surface out
         if (distToSp2 < sq_spike_rad)
-            vert *= (distToOrigin)+((trig_cos_off+1)*r/2)*(1-distToSp2/sq_spike_rad); // animated from surface out
+            vert *= (distToOrigin)+((cos_o+1)*r/2)*(1-distToSp2/sq_spike_rad); // animated from surface out
         if (distToSp3 < sq_spike_rad)
-            vert *= (distToOrigin)+((trig_cos_off+1)*r/2)*(1-distToSp3/sq_spike_rad); // animated from surface out
+            vert *= (distToOrigin)+((cos_o+1)*r/2)*(1-distToSp3/sq_spike_rad); // animated from surface out
         if (distToSp4 < sq_spike_rad)
-            vert *= (distToOrigin)+((trig_cos_off+1)*r/2)*(1-distToSp4/sq_spike_rad); // animated from surface out
+            vert *= (distToOrigin)+((cos_o+1)*r/2)*(1-distToSp4/sq_spike_rad); // animated from surface out
     } else if (uVertAnimSel == 1) {
         if (distToSp1 < sq_spike_rad)
-            vert *= (distToOrigin)+(trig_sin_off*r)*(1-distToSp1/sq_spike_rad); // animated in and out of surface
+            vert *= (distToOrigin)+(sin_o*r)*(1-distToSp1/sq_spike_rad); // animated in and out of surface
         if (distToSp2 < sq_spike_rad)
-            vert *= (distToOrigin)+(trig_sin_off*r)*(1-distToSp2/sq_spike_rad); // animated in and out of surface
+            vert *= (distToOrigin)+(sin_o*r)*(1-distToSp2/sq_spike_rad); // animated in and out of surface
         if (distToSp3 < sq_spike_rad)
-            vert *= (distToOrigin)+(trig_sin_off*r)*(1-distToSp3/sq_spike_rad); // animated in and out of surface
+            vert *= (distToOrigin)+(sin_o*r)*(1-distToSp3/sq_spike_rad); // animated in and out of surface
         if (distToSp4 < sq_spike_rad)
-            vert *= (distToOrigin)+(trig_sin_off*r)*(1-distToSp4/sq_spike_rad); // animated in and out of surface
+            vert *= (distToOrigin)+(sin_o*r)*(1-distToSp4/sq_spike_rad); // animated in and out of surface
     }
 
 
 
         // vert.x = sqrt(sq_dist_from_origin)+(r)*(1-distToSp1/sq_spike_rad); // static spikes from surface
-        // vert.x = sqrt(sq_dist_from_origin)+((trig_cos_off+1)*r/2)*(1-distToSp1/sq_spike_rad); // animated from surface out
-        // vert.x = sqrt(sq_dist_from_origin)+(trig_sin_off*r)*(1-distToSp1/sq_spike_rad); // animated in and out of surface out
+        // vert.x = sqrt(sq_dist_from_origin)+((cos_o+1)*r/2)*(1-distToSp1/sq_spike_rad); // animated from surface out
+        // vert.x = sqrt(sq_dist_from_origin)+(sin_o*r)*(1-distToSp1/sq_spike_rad); // animated in and out of surface out
         // vert *= sqrt(sq_dist_from_origin)+(r)*(1-distToSp1/sq_spike_rad); // static spikes from surface
-        // vert *= sqrt(sq_dist_from_origin)+((trig_cos_off+1)*r/2)*(1-distToSp1/sq_spike_rad); // animated from surface out
-        // vert *= sqrt(sq_dist_from_origin)+(trig_sin_off*r)*(1-distToSp1/sq_spike_rad); // animated in and out of surface out
+        // vert *= sqrt(sq_dist_from_origin)+((cos_o+1)*r/2)*(1-distToSp1/sq_spike_rad); // animated from surface out
+        // vert *= sqrt(sq_dist_from_origin)+(sin_o*r)*(1-distToSp1/sq_spike_rad); // animated in and out of surface out
 
 
 

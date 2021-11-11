@@ -67,8 +67,8 @@ struct spotlight : public light
 // Constants
 
 // title of these windows:
-const char *WINDOWTITLE = {"Lighting (P4) -- Nicholas Olson"};
-const char *GLUITITLE = {"OpenGL Scene Lighting UI"};
+const char *WINDOWTITLE = {"Shaders (P5) -- Nicholas Olson"};
+const char *GLUITITLE = {"OpenGL GLSL Shaded Scene UI"};
 
 // what the glui package defines as true and false:
 const int GLUITRUE = {true};

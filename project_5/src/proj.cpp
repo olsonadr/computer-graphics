@@ -1,6 +1,6 @@
-// Intro to Computer Graphics - Project 4 - Lighting
+// Intro to Computer Graphics - Project 5 - Shaders
 // Author - Nicholas Olson
-// Date -   11/01/2021
+// Date -   11/11/2021
 // Texture Source - https://opengameart.org/content/helicopter-3
 // OBJ Source - https://www.cgtrader.com/free-3d-models/aircraft/helicopter/cartoon-low-poly-helicopter
 
@@ -15,16 +15,14 @@
 //		5. The projection to be changed
 //		6. The transformations to be reset
 //		7. The program to quit
-//
 
 
-// Primary include for includes, paramaters, prototypess, and constants of this program
+// Primary include for includes, paramaters, prototypes, and constants of this program
 #include "../include/proj.hpp"
 
 
-// main program:
-int main(int argc, char *argv[])
-{
+// main program
+int main(int argc, char *argv[]) {
     // turn on the glut package:
     // (do this before checking argc and argv since it might
     // pull some command line arguments out)
