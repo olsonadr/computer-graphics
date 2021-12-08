@@ -179,8 +179,8 @@ const int OUTSIDE_VIEW = 0;
 const int INSIDE_VIEW = 1;
 
 // texture constants
-// char *TEXTURE_PATH = "chopper.bmp";
 char *TEXTURE_PATH = "chopper_transparent.bmp";
+// char *TEXTURE_PATH = "chopper.bmp";
 int TEXTURE_WIDTH = 235;
 int TEXTURE_HEIGHT = 190;
 const int DISTORT_TEX_TIME = 1000;
