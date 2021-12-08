@@ -872,7 +872,7 @@ void Reset(bool redisplay)
     ActiveButton = 0;
     WhichProjection = ORTHO;
     DrawHelpText = false;
-    Scale = 1.;
+    Scale = 1.5;
     fixedLighting = true;
     oceanThresh = oceanThreshDefVal;
     SceneRotateOn = false;
