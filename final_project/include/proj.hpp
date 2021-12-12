@@ -27,16 +27,19 @@
 #endif
 
 // all opengl includes (gl, glew, glut, etc)
-#include "opengl_includes.hpp"
+#include <opengl_includes.hpp>
 
 // osu provided locals (helicopter, osusphere, lightinghelpers)
-#include "osu.hpp"
+#include <osu.hpp>
 
 // icosphere implementation
-#include "Icosphere.h"
+#include <Icosphere.h>
 
 // fast noise lite noise library
-#include "FastNoiseLite.h"
+#include <FastNoiseLite.h>
+
+// skybox cubemap texture object
+#include <cubemap.hpp>
 
 
 // Constants
@@ -53,7 +56,8 @@ const int GLUIFALSE = {false};
 #define ESCAPE 0x1b
 
 // initial window size:
-const int INIT_WINDOW_SIZE = {600};
+const int INIT_WINDOW_SIZE = {1200};
+// const int INIT_WINDOW_SIZE = {600};
 
 // multiplication factors for input interaction:
 //  (these are known from previous experience)
@@ -88,7 +92,9 @@ enum ButtonVals {
 };
 
 // window background color (rgba):
-const GLfloat BACKCOLOR[] = {0.1, 0.1, 0.1, 1.};
+const float rat = 0.02;
+const GLfloat BACKCOLOR[] = {rat, rat, rat, rat};
+// const GLfloat BACKCOLOR[] = {0.1, 0.1, 0.1, 1.};
 // const GLfloat BACKCOLOR[] = {0.2, 0.2, 0.2, 1.};
 
 const int SCENE_ROTATE_TIME = 3000;
@@ -99,7 +105,7 @@ int ActiveButton; // current button that is down
 
 int DebugOn;         // != 0 means to print debugging info
 bool DrawHelpText;   // whether to draw the help text
-bool fixedLighting = true;
+bool fixedLighting = false;
 bool THREE_DEE = true;
 bool SceneRotateOn = false;
 Projections WhichProjection;
@@ -109,6 +115,7 @@ int Xmouse, Ymouse; // mouse values
 
 float Scale;                           // scaling factor
 float Xrot, Yrot, Zrot;                // whole scene rotation angles in degrees
+float OXrot, OYrot, OZrot;                // planet rotation angles in degrees
 
 int msOfPriorAnimate;          // ms value of the prior animate call
 int SphereArcSliceAnimateDir;  // either -1 or 1 to show which way arcs are animating
@@ -145,8 +152,37 @@ const int oceanThreshSteps = 14;
 const int oceanThreshDefStep = 3*14/5;
 auto calcOcean = [](int step) { return ((float)step / (float)oceanThreshSteps) * (oceanThreshMax - oceanThreshMin) + oceanThreshMin; };
 const float oceanThreshDefVal = calcOcean(oceanThreshDefStep);
+float aveNoise = 0;
+float maxNoise = 0;
+float minNoise = 0;
 
 
+// skybox stuff (cubemap generated using https://tools.wwwtyro.net/space-3d/index.html)
+GLSLProgram *SkyShader;
+GLuint attribPosition;
+GLuint skyTexId;
+CubemapTexture *skyTex;
+
+// std::string &SkyDirectory;
+const std::string &SkyPosXFilename = "right.bmp";
+const std::string &SkyNegXFilename = "left.bmp";
+const std::string &SkyPosYFilename = "bottom.bmp";
+const std::string &SkyNegYFilename = "top.bmp";
+const std::string &SkyPosZFilename = "front.bmp";
+const std::string &SkyNegZFilename = "back.bmp";
+Icosphere skySphere(1.0f, 4, false);
+GLuint vboId3;
+GLuint iboId3;
+const float eyeX = 0, eyeY = 0, eyeZ = 5;
+// All of these must have same order as Skies
+const int NumSkies = 4;
+enum Skies                      { NORMAL,                   BLUEGREEN,                  PINK,                       GREEN, };
+const std::string SkyPaths[] =  { "obj/skyboxes/normal",    "obj/skyboxes/bluegreen",   "obj/skyboxes/pink",        "obj/skyboxes/green", };
+const glm::vec3 SkyLightPos[] = { glm::vec3(-1.5, 1, -1),   glm::vec3(-1.5, -.2, 1),    glm::vec3(-1, 0.2, -1),     glm::vec3(-1, 0, 0), };
+const glm::vec4 SkyLightCol[] = { glm::vec4(1, 1, .9, 1),   glm::vec4(.2, .8, .3, 1),   glm::vec4(1., .9, 1, 1),    glm::vec4(.7, 1, .7, 1), };
+const glm::vec4 SkyAmbCol[] =   { glm::vec4(1, 1, 1, .5),   glm::vec4(.1, 0, .8, .5),   glm::vec4(1, .1, .6, .8),   glm::vec4(.2, .7, 0, .7), };
+Skies CurrSky = NORMAL;
+CubemapTexture **skyTexArr;
 
 // function prototypes:
 void Animate();
@@ -167,6 +203,9 @@ void Visibility(int);
 void RecalcSphereMesh(Icosphere sphere, GLuint &vboId, GLuint &iboId);
 void DrawIcoSphere(Icosphere sphere, GLuint &vbo, GLuint &ibo, GLSLProgram *Shader, bool useNoise);
 float GenerateNewPlanet();
+
+void DrawSkyBox();
+void SetSkyBoxUniforms(bool lite = false);
 
 
 #endif /* PROJ_HPP */

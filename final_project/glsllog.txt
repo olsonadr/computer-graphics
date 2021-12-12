@@ -1,3 +1,4 @@
 
-0:95(2): error: value of type vec4 cannot be assigned to variable of type vec3
+0(51) : error C0000: syntax error, unexpected '=', expecting "::" at token "="
+0(82) : error C1503: undefined variable "sandThresh"
 

@@ -1,6 +1,6 @@
 // Intro to Computer Graphics - Final Project - Procedural Planet Generation
 // Author - Nicholas Olson
-// Date -   11/28/2021
+// Date -   12/07/2021
 // Icosphere Source - http://www.songho.ca/opengl/gl_sphere.html
 // Inpritation Source - https://www.youtube.com/playlist?list=PLFt_AvWsXl0cONs3T0By4puYy6GM22ko8
 
@@ -57,7 +57,8 @@ void Animate()
 
     // Handle scene rotation if enabled
     if (SceneRotateOn) {
-        Yrot += 180.f * ((float)elapsedMS) / SCENE_ROTATE_TIME;
+        // Yrot += 180.f * ((float)elapsedMS) / SCENE_ROTATE_TIME; // rotate view
+        OYrot += 180.f * ((float)elapsedMS) / SCENE_ROTATE_TIME; // rotate object
     }
 
     // force a call to Display( ) next time it is convenient:
@@ -103,8 +104,11 @@ void Display()
     // since we are using glScalef( ), be sure normals get unitized:
     glEnable(GL_NORMALIZE);
 
-    // set the eye position, look-at position, and up-vector dending on view
-    gluLookAt(0., 0., 5., 0., 0., 0., 0., 1., 0.);
+    // set the eye position, look-at position, and up-vector
+    gluLookAt(eyeX, eyeY, eyeZ, 0., 0., 0., 0., 1., 0.);
+
+    // draw skybox sphere w/ shader before scaling or rotating
+    DrawSkyBox();
 
     // uniformly rotate and scale the scene
     glRotatef((GLfloat)Xrot, 1., 0., 0.);
@@ -112,10 +116,13 @@ void Display()
     if (Scale < MINSCALE)
         Scale = MINSCALE;
     glScalef((GLfloat)Scale, (GLfloat)Scale, (GLfloat)Scale);
-    
+
     // Draw icospheres w/ shaders
     DrawIcoSphere(sphere, vboId, iboId, IcoShader, true);
     DrawIcoSphere(sphere2, vboId2, iboId2, IcoShader, false);
+
+    
+
 
     // maybe draw some gratuitous text that is fixed on the screen:
     //  the projection matrix is reset to define a scene whose
@@ -150,6 +157,8 @@ void DrawIcoSphere(Icosphere sphere,
                    GLuint &vbo, GLuint &ibo,
                    GLSLProgram *Shader,
                    bool useNoise = true) {
+    glPushMatrix();
+
     // Draw w/ shaders
     Shader->Use();
         // set matrix uniforms every frame
@@ -158,6 +167,13 @@ void DrawIcoSphere(Icosphere sphere,
         float modelViewProjArr[16]; 
         glGetFloatv(GL_MODELVIEW_MATRIX, modelViewArr);
         glGetFloatv(GL_PROJECTION_MATRIX, projArr);
+        glm::mat4 matrixWorldView = glm::make_mat4(modelViewArr);
+
+        // rotate the object using OXRot, OYRot
+        glRotatef((GLfloat)OXrot, 1., 0., 0.);
+        glRotatef((GLfloat)OYrot, 0., 1., 0.);
+
+        glGetFloatv(GL_MODELVIEW_MATRIX, modelViewArr);
         glm::mat4 matrixModelView = glm::make_mat4(modelViewArr);
         glm::mat4 matrixProj = glm::make_mat4(projArr);
         glm::mat4 matrixModelViewProjection = matrixProj * matrixModelView;
@@ -165,6 +181,7 @@ void DrawIcoSphere(Icosphere sphere,
         matrixNormal[3] = glm::vec4(0,0,0,1);
 
         Shader->SetUniformVariableMat4("matrixModelView", &matrixModelView[0][0]);
+        Shader->SetUniformVariableMat4("matrixWorldView", &matrixWorldView[0][0]);
         Shader->SetUniformVariableMat4("matrixModelViewProjection", &matrixModelViewProjection[0][0]);
         Shader->SetUniformVariableMat4("matrixNormal", &matrixNormal[0][0]);
         Shader->SetUniformVariable("useNoise", useNoise);
@@ -210,168 +227,262 @@ void DrawIcoSphere(Icosphere sphere,
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     Shader->UnUse();
+
+    glPopMatrix();
 }
 
 // Generates planet noise into gen'd `texId`, returning ave noise value
 float GenerateNewPlanet() {
     // Declare return val
-    float aveNoise;
+    // float aveNoise;
 
-    // If 2D, not what we want
-    if (!THREE_DEE) {
-        // Setup and generate 2D noise for planet
-        int baseSeed = time(NULL) % 10000;   // this one
-        const int numLayers = 9;  // this one
-        float baseFreq = .01;
-        float baseAmp = 1.4;  // this one
-        const int dim = 128;
-        float noiseData[dim*dim];
-        std::fill_n(noiseData, dim*dim, 1);
-        int index;
-        float total = 0;
+    // Setup and generate 3D noise for planet
+    const int dim3D = 60;
+    float noiseData3D[dim3D*dim3D*dim3D];
+    std::fill_n(noiseData3D, dim3D*dim3D*dim3D, 0);
 
-        FastNoiseLite noise_generators[numLayers];
-        for (int i = 0; i < numLayers; i++) {
-            FastNoiseLite noise = noise_generators[i];
-            noise.SetSeed(baseSeed + (i+1)*100);
-            noise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
-            noise.SetFrequency((1+i*1.5)*baseFreq);
-                    noise.SetFractalLacunarity(2.f);
-                    noise.SetFractalGain(0.5f);
-                    noise.SetFractalType(FastNoiseLite::FractalType::FractalType_FBm);
-            index = 0;
-            for (int y = 0; y < dim; y++)
-                for (int x = 0; x < dim; x++) {
-                    noiseData[index++] *= (1-float(i)/float(numLayers))*baseAmp*(0.5 + ( noise.GetNoise((float)x, (float)y) + 1 ) / 2.);
-                    if (i == numLayers-1) total += noiseData[index-1];
-                }
-        }
+    FastNoiseLite noise;
+    int baseSeed = time(NULL) % 10000;
+    noise.SetSeed(baseSeed);
+    noise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+    noise.SetFractalType(FastNoiseLite::FractalType::FractalType_FBm);
+    noise.SetFractalLacunarity(3.f); // sweetspot!
+    noise.SetFractalGain(0.5f); // sweetspot!
+    // noise.SetFractalLacunarity(6.f); // sweetspot?
+    // noise.SetFractalGain(0.4f); // sweetspot?
+    // noise.SetFractalGain(0.9f); // sweetspot?
+    // noise.SetFractalGain(1.f); // sweetspot?
+    // noise.SetFractalLacunarity(1.f); // bigger, taller, smoother
+    // noise.SetFractalGain(0.1f); // bigger, taller, smoother
 
-        aveNoise = total / float(dim*dim);
-        sphere2_rad = aveNoise;
+    float total = 0;
+    float count = 0;
+    int index;
+    
+    const int numLayers = 9;
+    float baseFreq = .02;
+    float baseAmp = 0.9;
+    float amplitude = baseAmp;
+    float frequency = baseFreq;
+    float roughness = 3.;
+    float persistence = 0.5;
+    float min = 0;
+    float strength = 0.5;
 
-        // Use noise as texture for icosphere
-        glGenTextures(1, &texId);
-        glBindTexture(GL_TEXTURE_2D, texId); // bind
+    // lambdas used to filter the noise (choose one)
+    auto filter = [](float x) { return pow(1.-abs(sin(x)), 2); }; // peaks
+    // auto filter = [](float x) { return pow(1.-abs(sin(x)), 4); }; // bigger peaks
+    // auto filter = [](float x) { return x; }; // identity
 
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT); // or GL_CLAMP
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR); // or GL_LINEAR
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    // Apply all layers of noise
+    bool first = true;
+    for (int i = 0; i < numLayers; i++) {
+        noise.SetFrequency(frequency);
+        index = 0;
+        for (int y = 0; y < dim3D; y++) {
+            for (int x = 0; x < dim3D; x++) {
+                for (int z = 0; z < dim3D; z++) {
+                    // Move to this idx
+                    index++;
 
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, dim, dim, 0,
-                     GL_RED, GL_FLOAT, noiseData);
+                    // Filter and modify noise val
+                    float v = noise.GetNoise((float)x, (float)y, (float)z); // v = [-1,1]
+                    // v = filter(v);
+                    v = (v+1)*0.5f*amplitude; // v = [0, amplitude]
+                    v = std::max(0.f, v-min); // v = [max(0, min), amplitude]
+                    v *= strength; // [max(0, min*strength), amplitude*strength]
 
-        glBindTexture(GL_TEXTURE_2D, 0); // unbind
-    }
+                    // Place val in image
+                    noiseData3D[index-1] += v; // store
 
-    // 3D Mapping (What we Want)
-    else if (THREE_DEE) {
-
-        // Setup and generate 3D noise for planet
-        const int dim3D = 60;
-        float noiseData3D[dim3D*dim3D*dim3D];
-        std::fill_n(noiseData3D, dim3D*dim3D*dim3D, 0);
-
-        FastNoiseLite noise;
-        int baseSeed = time(NULL) % 10000;
-        noise.SetSeed(baseSeed);
-        noise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
-        noise.SetFractalType(FastNoiseLite::FractalType::FractalType_FBm);
-        noise.SetFractalLacunarity(3.f); // sweetspot!
-        noise.SetFractalGain(0.5f); // sweetspot!
-        // noise.SetFractalLacunarity(6.f); // sweetspot?
-        // noise.SetFractalGain(0.4f); // sweetspot?
-        // noise.SetFractalGain(0.9f); // sweetspot?
-        // noise.SetFractalGain(1.f); // sweetspot?
-        // noise.SetFractalLacunarity(1.f); // bigger, taller, smoother
-        // noise.SetFractalGain(0.1f); // bigger, taller, smoother
-
-        float total = 0;
-        float count = 0;
-        int index;
-        
-        const int numLayers = 9;
-        float baseFreq = .02;
-        float baseAmp = 0.9;
-        float amplitude = baseAmp;
-        float frequency = baseFreq;
-        float roughness = 3.;
-        float persistence = 0.5;
-        float min = 0;
-        float strength = 0.5;
-
-        // lambdas used to filter the noise (choose one)
-        auto filter = [](float x) { return pow(1.-abs(sin(x)), 2); }; // peaks
-        // auto filter = [](float x) { return pow(1.-abs(sin(x)), 4); }; // bigger peaks
-        // auto filter = [](float x) { return x; }; // identity
-
-        // Apply all layers of noise
-        for (int i = 0; i < numLayers; i++) {
-            noise.SetFrequency(frequency);
-            index = 0;
-            for (int y = 0; y < dim3D; y++) {
-                for (int x = 0; x < dim3D; x++) {
-                    for (int z = 0; z < dim3D; z++) {
-                        // Move to this idx
-                        index++;
-
-                        // Filter and modify noise val
-                        float v = noise.GetNoise((float)x, (float)y, (float)z); // v = [-1,1]
-                        v = (v+1)*0.5f*amplitude; // v = [0, amplitude]
-                        v = std::max(0.f, v-min); // v = [max(0, min), amplitude]
-                        v *= strength; // [max(0, min*strength), amplitude*strength]
-
-                        // Place val in image
-                        noiseData3D[index-1] += v; // store
-
-                        // If in last layer, contribute to average noise val
-                        if (i == numLayers-1) {
-                            total += noiseData3D[index-1];
-                            count++;
+                    // If in last layer, contribute to average noise val
+                    if (i == numLayers-1) {
+                        // If first element, set initial min and max 
+                        if (first) {
+                            minNoise = noiseData3D[index - 1];
+                            maxNoise = noiseData3D[index - 1];
+                            first = false;
                         }
+                        // Check if new min/max
+                        if (noiseData3D[index-1] < minNoise)
+                            minNoise = noiseData3D[index-1];
+                        if (noiseData3D[index-1] > maxNoise)
+                            maxNoise = noiseData3D[index-1];
+                        // Contribute to ave
+                        total += noiseData3D[index-1];
+                        count++;
                     }
                 }
             }
-
-            // Update freq and amp for next layer
-            frequency *= roughness;
-            amplitude *= persistence;
         }
 
-        aveNoise = total / count;
-        sphere2_rad = oceanThresh+(aveNoise);
-
-
-        // Update texture in texId with this new data
-        glBindTexture(GL_TEXTURE_3D, texId); // bind
-
-        // select modulate to mix texture with color for shading
-        glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-
-        // Setup mon and mag filter and mipmap stuff
-        glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_3D, GL_GENERATE_MIPMAP, GL_TRUE);
-
-        // Setup wrap parameter
-        glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT); // or GL_CLAMP
-        glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
-        glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_MIRRORED_REPEAT);
-
-        // Copy 3D noise texture data
-        glTexImage3D(GL_TEXTURE_3D, 0, GL_RED, dim3D, dim3D, dim3D, 0,
-                     GL_RED, GL_FLOAT, noiseData3D);
-
-        // Generate mipmap for 3d texture
-        glGenerateMipmap(GL_TEXTURE_3D);
-
-        // Unbind tex
-        glBindTexture(GL_TEXTURE_3D, 0);
+        // Update freq and amp for next layer
+        frequency *= roughness;
+        amplitude *= persistence;
     }
+
+    aveNoise = total / count;
+    sphere2_rad = oceanThresh+(aveNoise);
+
+    // std::cout << minNoise << " " << maxNoise << " " << aveNoise << " " << 0.99 * (maxNoise - minNoise) + minNoise << std::endl;
+
+    // Update texture in texId with this new data
+    glBindTexture(GL_TEXTURE_3D, texId); // bind
+
+    // select modulate to mix texture with color for shading
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
+    // Setup mon and mag filter and mipmap stuff
+    glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_GENERATE_MIPMAP, GL_TRUE);
+
+    // Setup wrap parameter
+    glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT); // or GL_CLAMP
+    glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
+    glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_MIRRORED_REPEAT);
+
+    // Copy 3D noise texture data
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RED, dim3D, dim3D, dim3D, 0,
+                    GL_RED, GL_FLOAT, noiseData3D);
+
+    // Generate mipmap for 3d texture
+    glGenerateMipmap(GL_TEXTURE_3D);
+
+    // Unbind tex
+    glBindTexture(GL_TEXTURE_3D, 0);
 
     return aveNoise;
 }
+
+
+void DrawSkyBox()
+{
+    glPushMatrix();
+
+    GLint OldCullFaceMode;
+    glGetIntegerv(GL_CULL_FACE_MODE, &OldCullFaceMode);
+    GLint OldDepthFuncMode;
+    glGetIntegerv(GL_DEPTH_FUNC, &OldDepthFuncMode);
+    GLboolean OldDepthMask;
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &OldDepthMask);
+
+    glCullFace(GL_BACK);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_FALSE);
+
+    SkyShader->Use();
+        // Translate origin back to eye
+        glTranslatef(eyeX, eyeY, eyeZ);
+
+        // Scale and rotate scene
+        const float skyScale = 5;
+        glScalef(skyScale, skyScale, skyScale);
+        // glRotatef((GLfloat)Xrot, -1., 0., 0.);
+        // glRotatef((GLfloat)Yrot, 0., 1., 0.);
+        glRotatef((GLfloat)Xrot, 1., 0., 0.);
+        glRotatef((GLfloat)Yrot, 0., 1., 0.);
+
+
+        // set matrix uniform every frame
+        float modelViewArr[16]; 
+        float projArr[16]; 
+        float modelViewProjArr[16]; 
+        glGetFloatv(GL_MODELVIEW_MATRIX, modelViewArr);
+        glGetFloatv(GL_PROJECTION_MATRIX, projArr);
+        glm::mat4 matrixModelView = glm::make_mat4(modelViewArr);
+        glm::mat4 matrixProj = glm::make_mat4(projArr);
+        glm::mat4 matrixModelViewProjection = matrixProj * matrixModelView;
+        // SkyShader->SetUniformVariableMat4("gWVP", &matrixModelView[0][0]);
+        SkyShader->SetUniformVariableMat4("gWVP", &matrixModelViewProjection[0][0]);
+
+        glLoadIdentity(); // so that the uniform has only impact
+
+        // bind VBOs
+        glBindBuffer(GL_ARRAY_BUFFER, vboId3);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, iboId3);
+
+        // activate attrib
+        glEnableVertexAttribArray(attribPosition);
+
+        // set attrib arrays using glVertexAttribPointer()
+        int stride = skySphere.getInterleavedStride();
+        glVertexAttribPointer(attribPosition, 3, GL_FLOAT, false, stride, 0);
+
+        // bind texture
+        skyTexArr[CurrSky]->Bind(GL_TEXTURE0);
+        // skyTex->Bind(0);
+        
+        // Draw the sphere!
+        glDrawElements(GL_TRIANGLES,               // primitive type
+                       skySphere.getIndexCount(),  // # of indices
+                       GL_UNSIGNED_INT,            // data type
+                       (void*)0);                  // ptr to indices
+
+
+        // Unbind texture
+        glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+
+        // Disable vertex attrib
+        glDisableVertexAttribArray(attribPosition);
+
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    SkyShader->UnUse();
+
+    glCullFace(OldCullFaceMode);
+    glDepthFunc(OldDepthFuncMode);
+    glDepthMask(OldDepthMask);
+
+    glPopMatrix();
+}
+
+void SetSkyBoxUniforms(bool lite) {
+    // Setup shader uniforms
+    IcoShader->Use();
+        glm::vec3 landCol1 = glm::vec3(0.3, 0.7, 0.2);
+        // glm::vec3 landCol2 = glm::vec3(0.2, 0.15, 0.07); // brown mountains
+        glm::vec3 landCol2 = glm::vec3(0.3, 0.3, 0.3); // grey mountains
+        glm::vec3 oceanCol = glm::vec3(0.1, 0.3, 0.7);  // blue oceans
+        const float lAmb = 0.6, lDif = 0.8, lSpec = 0.6;
+        const float oAmbLand1 = 0.5, oDifLand1 = 0.7, oSpecLand1 = 0.2, oShinLand1 = 0.5;
+        const float oAmbLand2 = 0.5, oDifLand2 = 0.7, oSpecLand2 = 0.2, oShinLand2 = 0.5;
+        const float oAmbOcean = 0.5, oDifOcean = 0.7, oSpecOcean = 0.4, oShinOcean = 5;
+
+        IcoShader->SetUniformVariable("lightPosition", glm::vec4(SkyLightPos[CurrSky], 0));
+        IcoShader->SetUniformVariable("lightAmbient", lAmb*SkyAmbCol[CurrSky]);
+        IcoShader->SetUniformVariable("lightDiffuse", lDif*SkyLightCol[CurrSky]);
+        IcoShader->SetUniformVariable("lightSpecular", lSpec*SkyLightCol[CurrSky]);
+
+        if (!lite) {
+            IcoShader->SetUniformVariable("materialAmbientLand1", glm::vec4(oAmbLand1*landCol1, 1));
+            IcoShader->SetUniformVariable("materialDiffuseLand1", glm::vec4(oDifLand1*landCol1, 1));
+            IcoShader->SetUniformVariable("materialSpecularLand1", glm::vec4(oSpecLand1*landCol1, 1));
+            IcoShader->SetUniformVariable("materialShininessLand1", oShinLand1);
+            IcoShader->SetUniformVariable("materialAmbientLand2", glm::vec4(oAmbLand2*landCol2, 1));
+            IcoShader->SetUniformVariable("materialDiffuseLand2", glm::vec4(oDifLand2*landCol2, 1));
+            IcoShader->SetUniformVariable("materialSpecularLand2", glm::vec4(oSpecLand2*landCol2, 1));
+            IcoShader->SetUniformVariable("materialShininessLand2", oShinLand2);
+            IcoShader->SetUniformVariable("materialAmbientOcean", glm::vec4(oAmbOcean*oceanCol, 1));
+            IcoShader->SetUniformVariable("materialDiffuseOcean", glm::vec4(oDifOcean*oceanCol, 1));
+            IcoShader->SetUniformVariable("materialSpecularOcean", glm::vec4(oSpecOcean*oceanCol, 1));
+            IcoShader->SetUniformVariable("materialShininessOcean", oShinOcean);
+            IcoShader->SetUniformVariable("oceanThresh", oceanThresh);
+            IcoShader->SetUniformVariable("aveNoise", aveNoise);
+            IcoShader->SetUniformVariable("minNoise", minNoise);
+            IcoShader->SetUniformVariable("maxNoise", maxNoise);
+            IcoShader->SetUniformVariable("useNoise", 1);
+            IcoShader->SetUniformVariable("map0", 0);
+        }
+    IcoShader->UnUse();
+}
+
+
+
+
+
+
+
 
 // main menu callback:
 void DoMainMenu(int id)
@@ -389,6 +500,7 @@ void DoMainMenu(int id)
         glutSetWindow(MainWindow);
         glFinish();
         glutDestroyWindow(MainWindow);
+
         // clean up VBOs
         if(vboSupported) {
             glDeleteBuffers(1, &vboId);
@@ -398,6 +510,14 @@ void DoMainMenu(int id)
             vboId = iboId = 0;
             vboId2 = iboId2 = 0;
         }
+
+        // Cleanup skybox
+        for (int i = 0; i < NumSkies; i++) {
+            delete skyTexArr[i];
+        }
+        free(skyTexArr);
+
+        // Quit
         exit(0);
         break;
 
@@ -469,7 +589,7 @@ void InitGraphics()
 
     // set the initial window configuration:
     glutInitWindowPosition(0, 0);
-    glutInitWindowSize(INIT_WINDOW_SIZE, INIT_WINDOW_SIZE);
+    glutInitWindowSize(1.5*INIT_WINDOW_SIZE, INIT_WINDOW_SIZE);
 
     // open the window and set its title:
     MainWindow = glutCreateWindow(WINDOWTITLE);
@@ -600,38 +720,67 @@ void InitGraphics()
 
     // Generate new planet noise
     glGenTextures(1, &texId); // prepare texId to be used in here
-    float aveNoise = GenerateNewPlanet();
+    GenerateNewPlanet();
 
+    // Generate all Skybox textures
+    skyTexArr = (CubemapTexture **) malloc(sizeof(CubemapTexture)*NumSkies);
+    for (int i = 0; i < NumSkies; i++) {
+        skyTexArr[i] = new CubemapTexture(SkyPaths[i], SkyPosXFilename, SkyNegXFilename, SkyPosYFilename,
+                                          SkyNegYFilename, SkyPosZFilename, SkyNegZFilename);
+        skyTexArr[i]->Load();
+    }
 
-    // Setup shader uniforms
-    IcoShader->Use();
-        // Set uniforms
-        glm::vec3 lightColor = glm::vec3(1., 1., 1.);
-        glm::vec3 objColor1 = glm::vec3(0.3, 0.5, 0.2);
-        // glm::vec3 objColor2 = glm::vec3(0.1, 0.45, 0.1); // green under
-        glm::vec3 objColor2 = glm::vec3(0.1, 0.3, 0.7);  // blue under oceans
-        glm::vec3 lightPos = glm::vec3(0.5, 0.5, 1.);
-        const float lAmb = 0.6, lDif = 0.8, lSpec = 0.6;
-        const float oAmb1 = 0.5, oDif1 = 0.7, oSpec1 = 0.2, oShin1 = 0.5;
-        const float oAmb2 = 0.5, oDif2 = 0.7, oSpec2 = 0.4, oShin2 = 5;
+    // Setup ico shader uniforms
+    SetSkyBoxUniforms(false);
 
-        IcoShader->SetUniformVariable("lightPosition", glm::vec4(lightPos, 0));
-        IcoShader->SetUniformVariable("lightAmbient", glm::vec4(lAmb*lightColor, 1));
-        IcoShader->SetUniformVariable("lightDiffuse", glm::vec4(lDif*lightColor, 1));
-        IcoShader->SetUniformVariable("lightSpecular", glm::vec4(lSpec*lightColor, 1));
-        IcoShader->SetUniformVariable("materialAmbient1", glm::vec4(oAmb1*objColor1, 1));
-        IcoShader->SetUniformVariable("materialDiffuse1", glm::vec4(oDif1*objColor1, 1));
-        IcoShader->SetUniformVariable("materialSpecular1", glm::vec4(oSpec1*objColor1, 1));
-        IcoShader->SetUniformVariable("materialShininess1", oShin1);
-        IcoShader->SetUniformVariable("materialAmbient2", glm::vec4(oAmb2*objColor2, 1));
-        IcoShader->SetUniformVariable("materialDiffuse2", glm::vec4(oDif2*objColor2, 1));
-        IcoShader->SetUniformVariable("materialSpecular2", glm::vec4(oSpec2*objColor2, 1));
-        IcoShader->SetUniformVariable("materialShininess2", oShin2);
-        IcoShader->SetUniformVariable("oceanThresh", oceanThresh);
-        IcoShader->SetUniformVariable("aveNoise", aveNoise);
-        IcoShader->SetUniformVariable("useNoise", 1);
-        IcoShader->SetUniformVariable("map0", 0);
-    IcoShader->UnUse();
+    // Get current skyTex and bind it
+    //skyTex = skyTexArr[CurrSky];
+    skyTexArr[CurrSky]->Load();
+
+    // Setup Skybox shader
+    char sbvert[50];
+    char sbfrag[50];
+    strcpy(sbvert, "shaders/skybox.vert");
+    strcpy(sbfrag, "shaders/skybox.frag");
+
+    const int sb_n = 1;
+    int sb_attrib_idx[sb_n] = {0};
+    const char *sb_attrib_names[sb_n] = {"Position"};
+
+    SkyShader = new GLSLProgram(sb_n, sb_attrib_idx, sb_attrib_names);
+    valid = SkyShader->Create(sbvert, sbfrag);
+
+    if (valid) {
+        fprintf(stderr, "Sky shader created.\n");
+    } else {
+        fprintf(stderr, "Sky shader cannot be created!\n");
+        DoMainMenu(QUIT);
+    }
+
+    // Get skybox attrib locations
+    attribPosition = glGetAttribLocation(SkyShader->Program, "Position");
+
+    // Setup skybox shader uniforms
+    SkyShader->Use();
+        SkyShader->SetUniformVariable("gCubemapTexture", 0);
+    SkyShader->UnUse();
+
+    // Setup skySphere vbo and ibo
+    glGenBuffers(1, &vboId3);
+    glBindBuffer(GL_ARRAY_BUFFER, vboId3);
+    glBufferData(GL_ARRAY_BUFFER,                      // target
+                 skySphere.getInterleavedVertexSize(), // # of bytes
+                 skySphere.getInterleavedVertices(),   // ptr to vertices
+                 GL_STATIC_DRAW);                      // usage
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    glGenBuffers(1, &iboId3);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, iboId3);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                 skySphere.getIndexSize(),
+                 skySphere.getIndices(),
+                 GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 }
 
 // Recalculates the mesh for an Icosphere using vboId, iboId
@@ -755,6 +904,18 @@ void Keyboard(unsigned char c, int x, int y)
         break;
 
 
+    case '[':
+        CurrSky = static_cast<Skies>(static_cast<int>(CurrSky) - 1);
+        if (CurrSky < 0) CurrSky = static_cast<Skies>(0);
+        SetSkyBoxUniforms(true);
+        break;
+    case ']':
+        CurrSky = static_cast<Skies>(static_cast<int>(CurrSky) + 1);
+        if (CurrSky >= NumSkies) CurrSky = static_cast<Skies>(NumSkies-1);
+        SetSkyBoxUniforms(true);
+        break;
+
+
     case 'q':
     case 'Q':
     case ESCAPE:
@@ -829,18 +990,15 @@ void MouseButton(int button, int state, int x, int y)
 }
 
 // called when the mouse moves while a button is down:
-
 void MouseMotion(int x, int y)
 {
     int dx = x - Xmouse; // change in mouse coords
     int dy = y - Ymouse;
-    int dz = 0;
 
     if ((ActiveButton & LEFT) != 0)
     {
         Xrot += (ANGFACT * dy);
         Yrot += (ANGFACT * dx);
-        Zrot += (ANGFACT * dz);
     }
 
     if ((ActiveButton & MIDDLE) != 0)
@@ -869,11 +1027,13 @@ void Reset(bool redisplay)
     Xrot = 0;
     Yrot = 0;
     Zrot = 0.;
+    OXrot = 0;
+    OYrot = 0;
     ActiveButton = 0;
-    WhichProjection = ORTHO;
+    WhichProjection = PERSP;
     DrawHelpText = false;
-    Scale = 1.5;
-    fixedLighting = true;
+    Scale = 0.7;
+    fixedLighting = false;
     oceanThresh = oceanThreshDefVal;
     SceneRotateOn = false;
 
@@ -881,11 +1041,15 @@ void Reset(bool redisplay)
     sphere.setRadius(1.f);
     sphere.setSubdivision(5);
     sphere.setSmooth(true);
-    if (redisplay) RecalcSphereMesh(sphere, vboId, iboId);
     sphere2.setRadius(sphere2_rad);
     sphere2.setSubdivision(5);
     sphere2.setSmooth(true);
+    if (redisplay) RecalcSphereMesh(sphere, vboId, iboId);
     if (redisplay) RecalcSphereMesh(sphere2, vboId2, iboId2);
+    if (redisplay) RecalcSphereMesh(skySphere, vboId3, iboId3);
+    
+    // reset CurrSky
+    CurrSky = NORMAL;
 
     // redisplay if requested
     if (redisplay) {

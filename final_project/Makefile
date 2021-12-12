@@ -1,9 +1,9 @@
 # Variables
 SRCDIR = ./src
-SRCFILES = proj.cpp glslprogram.cpp lightinghelpers.cpp loadobj.cpp osusphere.cpp Icosphere.cpp
+SRCFILES = proj.cpp glslprogram.cpp lightinghelpers.cpp loadobj.cpp osusphere.cpp Icosphere.cpp cubemap.cpp bmp.cpp
 OUTDIR = .
 OUTFILE = proj
-CCFLAGS = -g -Linclude -Iinclude -lm
+CCFLAGS = -g -Linclude -Iinclude -I"include/ImageMagick-6" -L"include/ImageMagick-6" -lm
 WIN_CC_FLAGS = -lopengl32 -lGLU32 -lfreeglut -lglew32
 LINUX_CC_FLAGS = -lGL -lGLU -lglut -lGLEW /usr/lib64/libglut.so
 
