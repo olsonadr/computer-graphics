@@ -1,6 +1,9 @@
 // GLSL version
 #version 420 compatibility
 
+// function prototypes
+float linearize_depth(float d,float zNear,float zFar);
+
 // uniforms
 uniform vec4 lightPosition;             // should be in the modelspace
 uniform vec4 lightAmbient;              // light ambient color
@@ -25,8 +28,14 @@ uniform float aveNoise;                 // the average value of noise
 uniform float minNoise;                 // the min value of noise
 uniform float maxNoise;                 // the max value of noise
 uniform bool fixedLighting;             // whether to fix the lighting
+uniform bool useNoise;                  // whether to use the noise for land
 uniform float oceanThresh;              // threshold at which to make it the ocean
-uniform sampler3D map0;                 // texture map #1
+uniform sampler3D map0;                 // texture map #0
+
+uniform sampler2D depthTex;             // texture map #1
+uniform bool useSSAO;
+uniform float screenWidth;
+uniform float screenHeight;
 
 uniform mat4 matrixModelView;
 uniform mat4 matrixWorldView;
@@ -56,7 +65,9 @@ void main()
     float interpThresh = 0.02;
     bool interp = false;
 
-    if (esNoise > oceanThresh+aveNoise) {
+    
+    // if (esNoise > oceanThresh+aveNoise) {
+    if (useNoise) {
         if (interp) {
             float pct = clamp((esNoise - (oceanThresh+mountThresh+aveNoise)) / interpThresh, 0, 1);
             materialAmbient = mix(materialAmbientLand1, materialAmbientLand2, pct);
@@ -93,10 +104,29 @@ void main()
         }
         
     } else {
-        materialAmbient = materialAmbientOcean;
-        materialDiffuse = materialDiffuseOcean;
-        materialSpecular = materialSpecularOcean;
-        materialShininess = materialShininessOcean;
+        // In ocean, use noise appropriately
+        bool depth = true;
+        if (depth) {
+            // float blueness_min = (oceanThresh+aveNoise-minNoise)/2 + minNoise;
+            float blueness_min = minNoise;
+            float blueness = clamp(1 - (esNoise-blueness_min)/(oceanThresh+aveNoise-blueness_min), 0, 1);
+            // float blueness = 1 - (esNoise-minNoise)/(oceanThresh+aveNoise-minNoise);
+            vec3 foam = 0.8*vec3(0.25, 0.4, 0.8);
+            // vec3 foam = vec3(80, 80, 130)/255;
+            // vec3 foam = vec3(151, 189, 189)/255;
+            vec3 deep = 0.6*vec3(0.08, 0.2, 0.9);
+            // vec3 deep = vec3(25, 29, 140)/255;
+            vec3 color = mix(foam, deep, blueness);
+            materialAmbient = vec4(color, materialAmbientOcean.w);
+            materialDiffuse = vec4(color, materialDiffuseOcean.w);
+            materialSpecular = vec4(color, materialSpecularOcean.w);
+            materialShininess = materialShininessOcean;
+        } else {
+            materialAmbient = materialAmbientOcean;
+            materialDiffuse = materialDiffuseOcean;
+            materialSpecular = materialSpecularOcean;
+            materialShininess = materialShininessOcean;
+        }
     }
 
     // Fixed lighting source (attached to eye)
@@ -125,6 +155,16 @@ void main()
         vec3 normal = normalize(esNormal);
         vec3 light;
 
+        // if (vec4(-1.5, 1, -1, 1).w == 0.0) {
+        //     light = normalize((gl_ModelViewMatrix*vec4(-1.5, 1, -1, 1)).xyz);
+        // } else {
+        //     light = normalize((gl_ModelViewMatrix*vec4(-1.5, 1, -1, 1)).xyz - esVertex);
+        // }
+        // if (lightPosition.w == 0.0) {
+        //     light = normalize((matrixModelView*lightPosition).xyz);
+        // } else {
+        //     light = normalize((matrixModelView*lightPosition).xyz - esVertex);
+        // }
         if (lightPosition.w == 0.0) {
             light = normalize((matrixWorldView*lightPosition).xyz);
         } else {
@@ -132,20 +172,39 @@ void main()
         }
         vec3 Eye = normalize(vE);
 
-        vec3 color = lightAmbient.rgb * materialAmbient.rgb;        // begin with ambient
+        vec3 color = lightAmbient.a * lightAmbient.rgb * materialAmbient.rgb;        // begin with ambient
         float dotNL = max(dot(normal, light), 0.0);
-        color += lightDiffuse.rgb * materialDiffuse.rgb * dotNL;    // add diffuse
+        color += 1.5 * lightDiffuse.a * lightDiffuse.rgb * materialDiffuse.rgb * dotNL;    // add diffuse
+        // color += lightDiffuse.a * lightDiffuse.rgb * materialDiffuse.rgb * dotNL;    // add diffuse
         float s = 0.; // only do specular if the light can see the point
         if( dot(normal,light) > 0. ) {
             vec3 ref = normalize(  reflect( -light, normal )  );
-            s = pow( max( dot(Eye,ref),0. ), materialShininess );
+            s = pow( max( dot(Eye,ref), 0. ), materialShininess );
         }
-        color += s * lightSpecular.rgb * materialSpecular.rgb; // add specular
+        color += .5 * s * lightSpecular.a  * lightSpecular.rgb * materialSpecular.rgb; // add specular
+        // color += s * lightSpecular.a  * lightSpecular.rgb * materialSpecular.rgb; // add specular
+        // color += 0.1 * s * lightSpecular.a  * lightSpecular.rgb * materialSpecular.rgb; // add specular
 
-        // set frag color
+        // // Use SSAO if enabled
+        // if (useSSAO) {
+        //     float depthMin = 0.1;
+        //     float depthMax = 10;
+        //     vec2 sceneDepthCoord = vec2(gl_FragCoord.x/screenWidth, gl_FragCoord.y/screenHeight);
+        //     float sceneDepth = texture(depthTex, sceneDepthCoord).r;
+        //     float linSceneDepth = linearize_depth(sceneDepth, depthMin, depthMax);
+        //     color += 0.1*(1-linSceneDepth);
+        // }
+
+
+        // Set frag color
         gl_FragColor = vec4(color, materialDiffuse.a);
 
         // // cool camera normals coloring
         // gl_FragColor = vec4(normal, materialDiffuse.a);
-    }   
+    }
+}
+
+float linearize_depth(float d,float zNear,float zFar) {
+    float z_n = 2.0 * d - 1.0;
+    return 2.0 * zNear * zFar / (zFar + zNear - z_n * (zFar - zNear));
 }

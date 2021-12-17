@@ -75,22 +75,22 @@ void GLSLProgram::CommonConstructor() {
     CanDoFragmentShaders = IsExtensionSupported("GL_ARB_fragment_shader");
     CanDoBinaryFiles = IsExtensionSupported("GL_ARB_get_program_binary");
 
-    fprintf(stderr, "Can do: ");
-    if (CanDoComputeShaders)
-        fprintf(stderr, "compute shaders, ");
-    if (CanDoVertexShaders)
-        fprintf(stderr, "vertex shaders, ");
-    if (CanDoTessControlShaders)
-        fprintf(stderr, "tess control shaders, ");
-    if (CanDoTessEvaluationShaders)
-        fprintf(stderr, "tess evaluation shaders, ");
-    if (CanDoGeometryShaders)
-        fprintf(stderr, "geometry shaders, ");
-    if (CanDoFragmentShaders)
-        fprintf(stderr, "fragment shaders, ");
-    if (CanDoBinaryFiles)
-        fprintf(stderr, "binary shader files ");
-    fprintf(stderr, "\n");
+    // fprintf(stderr, "Can do: ");
+    // if (CanDoComputeShaders)
+    //     fprintf(stderr, "compute shaders, ");
+    // if (CanDoVertexShaders)
+    //     fprintf(stderr, "vertex shaders, ");
+    // if (CanDoTessControlShaders)
+    //     fprintf(stderr, "tess control shaders, ");
+    // if (CanDoTessEvaluationShaders)
+    //     fprintf(stderr, "tess evaluation shaders, ");
+    // if (CanDoGeometryShaders)
+    //     fprintf(stderr, "geometry shaders, ");
+    // if (CanDoFragmentShaders)
+    //     fprintf(stderr, "fragment shaders, ");
+    // if (CanDoBinaryFiles)
+    //     fprintf(stderr, "binary shader files ");
+    // fprintf(stderr, "\n");
 }
 
 GLSLProgram::~GLSLProgram()

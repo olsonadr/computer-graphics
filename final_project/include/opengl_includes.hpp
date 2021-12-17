@@ -13,5 +13,6 @@
 #include "gl_ext/glm/gtc/matrix_transform.hpp"
 #include "gl_ext/glm/gtc/type_ptr.hpp"
 #include "gl_ext/glm/gtx/string_cast.hpp"
+#include "gl_ext/glm/gtx/norm.hpp"
 
 #endif // #ifndef OPENGL_INCLUDES_HPP
